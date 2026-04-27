@@ -1,6 +1,0 @@
-C:\Users\2479792\Videos\MicroserviceBuildLedger\api-gateway\src\main\java\com\buildledger\gateway\config\GatewayConfig.java
-C:\Users\2479792\Videos\MicroserviceBuildLedger\api-gateway\src\main\java\com\buildledger\gateway\config\SwaggerConfig.java
-C:\Users\2479792\Videos\MicroserviceBuildLedger\api-gateway\src\main\java\com\buildledger\gateway\util\JwtUtil.java
-C:\Users\2479792\Videos\MicroserviceBuildLedger\api-gateway\src\main\java\com\buildledger\gateway\ApiGatewayApplication.java
-C:\Users\2479792\Videos\MicroserviceBuildLedger\api-gateway\src\main\java\com\buildledger\gateway\filter\JwtAuthenticationFilter.java
-C:\Users\2479792\Videos\MicroserviceBuildLedger\api-gateway\src\main\java\com\buildledger\gateway\fallback\FallbackController.java

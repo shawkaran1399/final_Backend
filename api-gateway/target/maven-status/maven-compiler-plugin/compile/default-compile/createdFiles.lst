@@ -1,6 +1,0 @@
-com\buildledger\gateway\filter\JwtAuthenticationFilter.class
-com\buildledger\gateway\fallback\FallbackController.class
-com\buildledger\gateway\ApiGatewayApplication.class
-com\buildledger\gateway\config\SwaggerConfig.class
-com\buildledger\gateway\config\GatewayConfig.class
-com\buildledger\gateway\util\JwtUtil.class
