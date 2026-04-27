@@ -13,6 +13,7 @@ public class VendorResponseDTO {
     private String phone;
     private String category;
     private String address;
+    private String username;
     private VendorStatus status;
     private Long userId;
     private LocalDateTime createdAt;

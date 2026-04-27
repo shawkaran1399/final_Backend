@@ -38,6 +38,14 @@ public class Vendor {
     @Column(name = "address", length = 300)
     private String address;
 
+    /** Chosen by vendor during registration. Used as username in IAM after approval. */
+    @Column(name = "username", unique = true, length = 50)
+    private String username;
+
+    /** BCrypt-encoded password chosen by vendor during registration. */
+    @Column(name = "password_hash")
+    private String passwordHash;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @Builder.Default

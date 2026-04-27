@@ -31,8 +31,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -57,6 +55,10 @@ public class VendorServiceImpl implements VendorService {
         if (vendorRepository.existsByEmail(request.getEmail())) {
             throw new DuplicateResourceException("Vendor email already registered: " + request.getEmail());
         }
+        if (vendorRepository.existsByUsername(request.getUsername())) {
+            throw new DuplicateResourceException("Username already taken: " + request.getUsername());
+        }
+        String encodedPassword = new BCryptPasswordEncoder(12).encode(request.getPassword());
         Vendor vendor = Vendor.builder()
             .name(request.getName())
             .contactInfo(request.getContactInfo())
@@ -64,6 +66,8 @@ public class VendorServiceImpl implements VendorService {
             .phone(request.getPhone())
             .category(request.getCategory())
             .address(request.getAddress())
+            .username(request.getUsername())
+            .passwordHash(encodedPassword)
             .build();
         return mapToResponse(vendorRepository.save(vendor));
     }
@@ -265,34 +269,32 @@ public class VendorServiceImpl implements VendorService {
             return;
         }
 
-        String emailLocal = vendor.getEmail().split("@")[0].toLowerCase().replaceAll("[^a-z0-9._]", "_");
-        String username = "vendor_" + vendor.getVendorId() + "_" + emailLocal;
+        String username = vendor.getUsername();
+        String encodedPassword = vendor.getPasswordHash();
 
-        String tempPassword = UUID.randomUUID().toString();
-        String encodedPassword = new BCryptPasswordEncoder(12).encode(tempPassword);
+        if (username == null || encodedPassword == null) {
+            log.error("Vendor {} has no stored credentials – cannot create IAM account", vendor.getVendorId());
+            return;
+        }
 
-        log.warn("==========================================================");
-        log.warn("VENDOR TEMP PASSWORD for vendor {} ({}): {}", vendor.getVendorId(), vendor.getEmail(), tempPassword);
-        log.warn("Share this with the vendor. They MUST change it on first login.");
-        log.warn("==========================================================");
+        log.info("Creating IAM user account for vendor {} with username '{}'", vendor.getVendorId(), username);
 
         try {
             ApiResponseDTO<?> response = iamServiceClient.createVendorUser(
                 username, encodedPassword, vendor.getName(), vendor.getEmail(), vendor.getPhone());
 
             if (response.isSuccess() && response.getData() != null) {
-                // Extract the userId from response data
                 Object data = response.getData();
                 if (data instanceof java.util.Map) {
                     Object userId = ((java.util.Map<?, ?>) data).get("userId");
                     if (userId != null) {
                         vendor.setUserId(Long.parseLong(userId.toString()));
                         vendorRepository.save(vendor);
-                        log.info("Vendor {} user account created: userId={}", vendor.getVendorId(), userId);
+                        log.info("Vendor {} IAM account created: userId={}", vendor.getVendorId(), userId);
                     }
                 }
             } else {
-                log.error("Failed to create user account for vendor {}: {}", vendor.getVendorId(), response.getMessage());
+                log.error("Failed to create IAM account for vendor {}: {}", vendor.getVendorId(), response.getMessage());
             }
         } catch (Exception e) {
             log.error("Error calling IAM service for vendor {}: {}", vendor.getVendorId(), e.getMessage());
@@ -333,7 +335,9 @@ public class VendorServiceImpl implements VendorService {
         return VendorResponseDTO.builder()
             .vendorId(v.getVendorId()).name(v.getName()).contactInfo(v.getContactInfo())
             .email(v.getEmail()).phone(v.getPhone()).category(v.getCategory()).address(v.getAddress())
-            .status(v.getStatus()).userId(v.getUserId())
+            .username(v.getUsername())
+            .status(v.getStatus())
+            .userId(v.getStatus() == VendorStatus.ACTIVE ? v.getUserId() : null)
             .createdAt(v.getCreatedAt()).updatedAt(v.getUpdatedAt()).build();
     }
 
