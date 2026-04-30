@@ -7,7 +7,7 @@ Write-Host "  9 Business Services + Infrastructure" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host ""
 
-$baseDir = "C:\Users\2479792\Videos\MicroserviceBuildLedger"
+$baseDir = "C:\Users\2479792\Videos\Project\final_Backend"
 
 # Check prerequisites
 Write-Host "Checking prerequisites..." -ForegroundColor Yellow

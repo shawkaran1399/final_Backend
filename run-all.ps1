@@ -10,7 +10,7 @@ param(
     [switch]$BuildOnly
 )
 
-$baseDir = "C:\Users\2479792\Videos\MicroserviceBuildLedger"
+$baseDir = "C:\Users\2479792\Videos\Project\final_Backend"
 
 $services = [ordered]@{
     "eureka-server"       = 8761
