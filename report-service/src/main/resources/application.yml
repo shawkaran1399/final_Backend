@@ -25,10 +25,6 @@ eureka:
 resilience4j:
   circuitbreaker:
     instances:
-      project-service:
-        slidingWindowSize: 10
-        failureRateThreshold: 50
-        waitDurationInOpenState: 15s
       contract-service:
         slidingWindowSize: 10
         failureRateThreshold: 50
@@ -47,6 +43,7 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+    url: /api/v3/api-docs
 
 management:
   endpoints:

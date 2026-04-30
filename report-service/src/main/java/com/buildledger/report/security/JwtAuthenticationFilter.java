@@ -21,14 +21,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     @NonNull FilterChain chain) throws ServletException, IOException {
         try {
             String role = req.getHeader("X-User-Role"), username = req.getHeader("X-Username");
+
+            // Option 1: Headers from API Gateway
             if (StringUtils.hasText(role) && StringUtils.hasText(username)) {
                 var auth = new UsernamePasswordAuthenticationToken(username, null,
                     List.of(new SimpleGrantedAuthority("ROLE_" + role)));
                 auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(req));
                 SecurityContextHolder.getContext().setAuthentication(auth);
+            } else {
+                // Option 2: Parse JWT token directly from Authorization header
+                String bearerToken = req.getHeader("Authorization");
+                if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
+                    String token = bearerToken.substring(7);
+                    if (jwtUtils.validateToken(token)) {
+                        String extractedUsername = jwtUtils.extractUsername(token);
+                        String extractedRole = jwtUtils.extractRole(token);
+                        if (StringUtils.hasText(extractedUsername) && StringUtils.hasText(extractedRole)) {
+                            var auth = new UsernamePasswordAuthenticationToken(extractedUsername, null,
+                                List.of(new SimpleGrantedAuthority("ROLE_" + extractedRole)));
+                            auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(req));
+                            SecurityContextHolder.getContext().setAuthentication(auth);
+                        }
+                    }
+                }
             }
         } catch (Exception e) { log.error("Auth error: {}", e.getMessage()); }
         chain.doFilter(req, res);
     }
 }
-
