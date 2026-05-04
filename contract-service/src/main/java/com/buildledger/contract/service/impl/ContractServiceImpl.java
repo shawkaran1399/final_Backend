@@ -52,8 +52,25 @@ public class ContractServiceImpl implements ContractService {
                 ". Only ACTIVE vendors can be assigned to contracts.");
         }
 
-        // Validate project exists
+        // Validate project exists and is ACTIVE
         Project project = findProjectById(request.getProjectId());
+        if (project.getStatus() != com.buildledger.contract.enums.ProjectStatus.ACTIVE) {
+            throw new BadRequestException(
+                "Contracts can only be created for ACTIVE projects. Project '" + project.getName() +
+                "' is currently " + project.getStatus() + ".");
+        }
+
+        // Validate new contract value does not push total beyond project budget
+        java.math.BigDecimal existingContractTotal = contractRepository.findByProjectId(request.getProjectId())
+            .stream()
+            .map(com.buildledger.contract.entity.Contract::getValue)
+            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+        if (existingContractTotal.add(request.getValue()).compareTo(project.getBudget()) > 0) {
+            throw new BadRequestException(
+                "Contract value would exceed project budget. Budget: " + project.getBudget() +
+                ", already contracted: " + existingContractTotal +
+                ", requested: " + request.getValue() + ".");
+        }
 
         Contract contract = Contract.builder()
             .vendorId(request.getVendorId())
@@ -129,6 +146,14 @@ public class ContractServiceImpl implements ContractService {
                 "Invalid status transition from " + current + " to " + newStatus +
                 ". Allowed: DRAFT→ACTIVE, ACTIVE→COMPLETED|TERMINATED|EXPIRED.");
         }
+        // A contract must have at least one term defined before it can go ACTIVE
+        if (newStatus == ContractStatus.ACTIVE) {
+            long termCount = contractTermRepository.findByContractContractIdOrderBySequenceNumberAsc(contractId).size();
+            if (termCount == 0) {
+                throw new BadRequestException(
+                    "Contract cannot be activated without any terms. Please add at least one contract term first.");
+            }
+        }
         contract.setStatus(newStatus);
         return mapToResponse(contractRepository.save(contract));
     }
@@ -179,6 +204,14 @@ public class ContractServiceImpl implements ContractService {
             throw new BadRequestException("Terms can only be deleted on DRAFT contracts.");
         }
         contractTermRepository.delete(term);
+    }
+
+    public void propagateVendorNameChange(Long vendorId, String newName) {
+        List<Contract> contracts = contractRepository.findByVendorId(vendorId);
+        if (contracts.isEmpty()) return;
+        contracts.forEach(c -> c.setVendorName(newName));
+        contractRepository.saveAll(contracts);
+        log.info("Propagated vendor name '{}' to {} contracts for vendorId={}", newName, contracts.size(), vendorId);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

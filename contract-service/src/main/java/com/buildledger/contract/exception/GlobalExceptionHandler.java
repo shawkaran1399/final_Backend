@@ -23,6 +23,27 @@ public class GlobalExceptionHandler {
             .body(ApiResponseDTO.<Void>builder().success(false).message(ex.getMessage()).build());
     }
 
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiResponseDTO<Void>> handleNotFound(ResourceNotFoundException ex) {
+        log.warn("Resource not found: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(ApiResponseDTO.<Void>builder().success(false).message(ex.getMessage()).build());
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<ApiResponseDTO<Void>> handleBadRequest(BadRequestException ex) {
+        log.warn("Bad request: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(ApiResponseDTO.<Void>builder().success(false).message(ex.getMessage()).build());
+    }
+
+    @ExceptionHandler(ServiceUnavailableException.class)
+    public ResponseEntity<ApiResponseDTO<Void>> handleServiceUnavailable(ServiceUnavailableException ex) {
+        log.error("Downstream service unavailable: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+            .body(ApiResponseDTO.<Void>builder().success(false).message(ex.getMessage()).build());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponseDTO<Map<String, String>>> handleValidation(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();

@@ -35,7 +35,7 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
 
     public ServiceResponseDTO createService(ServiceRequestDTO request) {
         log.info("Creating service record for contract {}", request.getContractId());
-        validateContractExists(request.getContractId());
+        validateContractActive(request.getContractId());
 
         ServiceRecord record = ServiceRecord.builder()
             .contractId(request.getContractId())
@@ -59,7 +59,7 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
 
     @Transactional(readOnly = true)
     public List<ServiceResponseDTO> getServicesByContract(Long contractId) {
-        validateContractExists(contractId);
+        validateContractActive(contractId);
         return serviceRecordRepository.findByContractId(contractId).stream().map(this::mapToResponse).collect(Collectors.toList());
     }
 
@@ -93,7 +93,7 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
             throw new BadRequestException("Service details can only be updated when status is PENDING.");
         }
         if (request.getContractId() != null) {
-            validateContractExists(request.getContractId());
+            validateContractActive(request.getContractId());
             service.setContractId(request.getContractId());
         }
         if (request.getDescription() != null) service.setDescription(request.getDescription());
@@ -112,7 +112,7 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private void validateContractExists(Long contractId) {
+    private void validateContractActive(Long contractId) {
         ApiResponseDTO<Map<String, Object>> response;
         try {
             response = contractServiceClient.getContractById(contractId);
@@ -126,6 +126,12 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         }
         if (!response.isSuccess() || response.getData() == null) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
+        }
+        String status = (String) response.getData().get("status");
+        if (!"ACTIVE".equals(status)) {
+            throw new BadRequestException(
+                "Service records can only be logged against ACTIVE contracts. Contract " + contractId +
+                " is currently " + status + ".");
         }
     }
 

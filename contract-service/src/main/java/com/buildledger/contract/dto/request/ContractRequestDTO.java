@@ -17,6 +17,7 @@ public class ContractRequestDTO {
     private Long projectId;
 
     @NotNull(message = "Start date is required")
+    @jakarta.validation.constraints.FutureOrPresent(message = "Contract start date cannot be in the past")
     private LocalDate startDate;
 
     @NotNull(message = "End date is required")

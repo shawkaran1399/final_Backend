@@ -13,6 +13,8 @@ import com.buildledger.vendor.enums.VerificationStatus;
 import com.buildledger.vendor.exception.BadRequestException;
 import com.buildledger.vendor.exception.DuplicateResourceException;
 import com.buildledger.vendor.exception.ResourceNotFoundException;
+import com.buildledger.vendor.feign.ContractServiceClient;
+import com.buildledger.vendor.feign.ContractServiceFallback;
 import com.buildledger.vendor.feign.IamServiceClient;
 import com.buildledger.vendor.repository.VendorDocumentRepository;
 import com.buildledger.vendor.repository.VendorRepository;
@@ -43,6 +45,7 @@ public class VendorServiceImpl implements VendorService {
     private final VendorDocumentRepository vendorDocumentRepository;
     private final LocalFileStorageService fileStorageService;
     private final IamServiceClient iamServiceClient;
+    private final ContractServiceClient contractServiceClient;
 
     @Value("${app.document.max-size-mb:10}")
     private long maxFileSizeMb;
@@ -113,12 +116,44 @@ public class VendorServiceImpl implements VendorService {
             }
             vendor.setEmail(request.getEmail());
         }
-        return mapToResponse(vendorRepository.save(vendor));
+        VendorResponseDTO saved = mapToResponse(vendorRepository.save(vendor));
+
+        // Propagate name change to contract-service cache (best-effort)
+        if (request.getName() != null) {
+            try {
+                contractServiceClient.propagateVendorName(vendorId, vendor.getName());
+            } catch (Exception e) {
+                log.warn("Could not propagate vendor name change to contract-service: {}", e.getMessage());
+            }
+        }
+        return saved;
     }
 
     @Override
     public void deleteVendor(Long vendorId) {
         Vendor vendor = findVendorById(vendorId);
+
+        // Guard: deny deletion if vendor has any ACTIVE or DRAFT contracts
+        try {
+            ApiResponseDTO<java.util.List<java.util.Map<String, Object>>> contractsResponse =
+                contractServiceClient.getContractsByVendor(vendorId);
+            if (contractsResponse.isSuccess() && contractsResponse.getData() != null) {
+                boolean hasLiveContracts = contractsResponse.getData().stream().anyMatch(c -> {
+                    String status = (String) c.get("status");
+                    return "ACTIVE".equals(status) || "DRAFT".equals(status);
+                });
+                if (hasLiveContracts) {
+                    throw new BadRequestException(
+                        "Cannot delete vendor '" + vendor.getName() +
+                        "' because they have active or draft contracts. Terminate or complete all contracts first.");
+                }
+            }
+        } catch (BadRequestException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("Could not verify contracts for vendor {} before deletion: {}", vendorId, e.getMessage());
+        }
+
         vendorDocumentRepository.findByVendorVendorId(vendorId)
             .ifPresent(doc -> fileStorageService.delete(doc.getFileUri()));
         vendorRepository.delete(vendor);

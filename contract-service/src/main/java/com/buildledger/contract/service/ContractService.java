@@ -22,5 +22,7 @@ public interface ContractService {
     List<ContractTermResponseDTO> getContractTerms(Long contractId);
     ContractTermResponseDTO editContractTerm(Long termId, ContractTermRequestDTO request);
     void deleteContractTerm(Long termId);
+
+    void propagateVendorNameChange(Long vendorId, String newName);
 }
 

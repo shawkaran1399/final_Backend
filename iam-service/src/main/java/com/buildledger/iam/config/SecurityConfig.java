@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -36,7 +37,11 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/auth/login", "/swagger-ui/**", "/v3/api-docs/**", "/actuator/**").permitAll()
-                .requestMatchers(HttpMethod.POST, "/users/internal/vendor").permitAll()
+                .requestMatchers(HttpMethod.POST, "/users/internal/vendor")
+                    .access((a, ctx) -> new AuthorizationDecision(
+                        "127.0.0.1".equals(ctx.getRequest().getRemoteAddr()) ||
+                        "0:0:0:0:0:0:0:1".equals(ctx.getRequest().getRemoteAddr())
+                    ))
                 .requestMatchers(HttpMethod.GET, "/users/**").permitAll()
                 .anyRequest().authenticated()
             )

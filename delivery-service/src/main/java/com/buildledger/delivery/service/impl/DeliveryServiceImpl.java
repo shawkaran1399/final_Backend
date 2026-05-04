@@ -34,7 +34,8 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
     public DeliveryResponseDTO createDelivery(DeliveryRequestDTO request) {
         log.info("Creating delivery for contract {}", request.getContractId());
-        validateContractExists(request.getContractId());
+        Map<String, Object> contractData = validateContractActive(request.getContractId());
+        validateDeliveryDateInWindow(request.getDate(), contractData);
 
         Delivery delivery = Delivery.builder()
             .contractId(request.getContractId())
@@ -60,7 +61,7 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
     @Transactional(readOnly = true)
     public List<DeliveryResponseDTO> getDeliveriesByContract(Long contractId) {
-        validateContractExists(contractId);
+        validateContractActive(contractId);
         return deliveryRepository.findByContractId(contractId).stream().map(this::mapToResponse).collect(Collectors.toList());
     }
 
@@ -94,7 +95,7 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
             throw new BadRequestException("Delivery details can only be updated when status is PENDING.");
         }
         if (request.getContractId() != null) {
-            validateContractExists(request.getContractId());
+            validateContractActive(request.getContractId());
             delivery.setContractId(request.getContractId());
         }
         if (request.getDate() != null) delivery.setDate(request.getDate());
@@ -115,7 +116,7 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private void validateContractExists(Long contractId) {
+    private Map<String, Object> validateContractActive(Long contractId) {
         ApiResponseDTO<Map<String, Object>> response;
         try {
             response = contractServiceClient.getContractById(contractId);
@@ -132,6 +133,28 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         }
         if (!response.isSuccess() || response.getData() == null) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
+        }
+        Map<String, Object> data = response.getData();
+        String status = (String) data.get("status");
+        if (!"ACTIVE".equals(status)) {
+            throw new BadRequestException(
+                "Deliveries can only be logged against ACTIVE contracts. Contract " + contractId +
+                " is currently " + status + ".");
+        }
+        return data;
+    }
+
+    private void validateDeliveryDateInWindow(java.time.LocalDate deliveryDate, Map<String, Object> contractData) {
+        if (deliveryDate == null) return;
+        Object startObj = contractData.get("startDate");
+        Object endObj   = contractData.get("endDate");
+        if (startObj == null || endObj == null) return;
+        java.time.LocalDate contractStart = java.time.LocalDate.parse(startObj.toString());
+        java.time.LocalDate contractEnd   = java.time.LocalDate.parse(endObj.toString());
+        if (deliveryDate.isBefore(contractStart) || deliveryDate.isAfter(contractEnd)) {
+            throw new BadRequestException(
+                "Delivery date " + deliveryDate + " is outside the contract period (" +
+                contractStart + " to " + contractEnd + ").");
         }
     }
 

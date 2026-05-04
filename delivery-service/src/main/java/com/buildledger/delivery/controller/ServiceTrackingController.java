@@ -57,6 +57,7 @@ public class ServiceTrackingController {
     }
 
     @PatchMapping("/{serviceId}/status")
+    @PreAuthorize("hasRole('VENDOR') or hasRole('PROJECT_MANAGER') or hasRole('ADMIN')")
     @Operation(summary = "Update service status",
                description = "Lifecycle: PENDING→IN_PROGRESS→COMPLETED→VERIFIED. " +
                              "IN_PROGRESS/COMPLETED require VENDOR or ADMIN. VERIFIED requires PROJECT_MANAGER or ADMIN.")

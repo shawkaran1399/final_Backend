@@ -11,6 +11,7 @@ import com.buildledger.finance.feign.ContractServiceClient;
 import com.buildledger.finance.feign.ContractServiceFallback;
 import com.buildledger.finance.repository.InvoiceRepository;
 import com.buildledger.finance.repository.PaymentRepository;
+import com.buildledger.finance.exception.BadRequestException;
 import com.buildledger.finance.exception.ResourceNotFoundException;
 import com.buildledger.finance.exception.ServiceUnavailableException;
 import feign.FeignException;
@@ -34,7 +35,22 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
 
     public InvoiceResponseDTO submitInvoice(InvoiceRequestDTO request) {
         log.info("Submitting invoice for contract {}", request.getContractId());
-        Map<String, Object> contractData = validateContractExists(request.getContractId());
+        Map<String, Object> contractData = validateContractActive(request.getContractId());
+
+        // Enforce invoice amount cap against contract value
+        Object contractValueObj = contractData.get("value");
+        if (contractValueObj != null) {
+            java.math.BigDecimal contractValue = new java.math.BigDecimal(contractValueObj.toString());
+            java.math.BigDecimal alreadyInvoiced = invoiceRepository.sumAmountByContractIdAndStatuses(
+                request.getContractId(),
+                java.util.List.of(InvoiceStatus.APPROVED, InvoiceStatus.PAID, InvoiceStatus.UNDER_REVIEW));
+            if (alreadyInvoiced.add(request.getAmount()).compareTo(contractValue) > 0) {
+                throw new BadRequestException(
+                    "Invoice amount would exceed contract value. Contract value: " + contractValue +
+                    ", already invoiced: " + alreadyInvoiced +
+                    ", requested: " + request.getAmount() + ".");
+            }
+        }
 
         Invoice invoice = Invoice.builder()
             .contractId(request.getContractId())
@@ -69,7 +85,8 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
     public InvoiceResponseDTO approveInvoice(Long invoiceId) {
         Invoice invoice = findInvoiceById(invoiceId);
         if (invoice.getStatus() != InvoiceStatus.UNDER_REVIEW) {
-            throw new RuntimeException("Invoice can only be approved when UNDER_REVIEW. Current: " + invoice.getStatus());
+            throw new BadRequestException(
+                "Invoice can only be approved when UNDER_REVIEW. Current: " + invoice.getStatus());
         }
         invoice.setStatus(InvoiceStatus.APPROVED);
         return mapInvoiceToResponse(invoiceRepository.save(invoice));
@@ -78,7 +95,8 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
     public InvoiceResponseDTO rejectInvoice(Long invoiceId, String reason) {
         Invoice invoice = findInvoiceById(invoiceId);
         if (invoice.getStatus() != InvoiceStatus.UNDER_REVIEW) {
-            throw new RuntimeException("Invoice can only be rejected when UNDER_REVIEW. Current: " + invoice.getStatus());
+            throw new BadRequestException(
+                "Invoice can only be rejected when UNDER_REVIEW. Current: " + invoice.getStatus());
         }
         invoice.setStatus(InvoiceStatus.REJECTED);
         invoice.setRejectionReason(reason);
@@ -87,8 +105,9 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
 
     public void deleteInvoice(Long invoiceId) {
         Invoice invoice = findInvoiceById(invoiceId);
-        if (invoice.getStatus() == InvoiceStatus.PAID) {
-            throw new RuntimeException("Cannot delete a PAID invoice.");
+        if (invoice.getStatus() != InvoiceStatus.UNDER_REVIEW && invoice.getStatus() != InvoiceStatus.REJECTED) {
+            throw new BadRequestException(
+                "Only UNDER_REVIEW or REJECTED invoices can be deleted. Current status: " + invoice.getStatus());
         }
         invoiceRepository.delete(invoice);
     }
@@ -100,8 +119,13 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         Invoice invoice = findInvoiceById(request.getInvoiceId());
 
         if (invoice.getStatus() != InvoiceStatus.APPROVED) {
-            throw new RuntimeException(
+            throw new BadRequestException(
                 "Payment can only be processed for APPROVED invoices. Current status: " + invoice.getStatus());
+        }
+        if (request.getAmount().compareTo(invoice.getAmount()) > 0) {
+            throw new BadRequestException(
+                "Payment amount " + request.getAmount() +
+                " exceeds invoice amount " + invoice.getAmount() + ". Overpayment is not allowed.");
         }
 
         Payment payment = Payment.builder()
@@ -132,7 +156,7 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         PaymentStatus current = payment.getStatus();
 
         if (!current.canTransitionTo(newStatus)) {
-            throw new RuntimeException(
+            throw new BadRequestException(
                 "Invalid payment status transition from " + current + " to " + newStatus +
                 ". Lifecycle: PENDING→PROCESSING|FAILED, PROCESSING→COMPLETED|FAILED.");
         }
@@ -152,7 +176,7 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private Map<String, Object> validateContractExists(Long contractId) {
+    private Map<String, Object> validateContractActive(Long contractId) {
         ApiResponseDTO<Map<String, Object>> response;
         try {
             response = contractServiceClient.getContractById(contractId);
@@ -167,7 +191,14 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         if (!response.isSuccess() || response.getData() == null) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
         }
-        return response.getData();
+        Map<String, Object> data = response.getData();
+        String status = (String) data.get("status");
+        if (!"ACTIVE".equals(status)) {
+            throw new BadRequestException(
+                "Invoices can only be submitted against ACTIVE contracts. Contract " + contractId +
+                " is currently " + status + ".");
+        }
+        return data;
     }
 
     private Invoice findInvoiceById(Long id) {

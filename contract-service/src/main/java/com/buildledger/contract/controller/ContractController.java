@@ -121,5 +121,14 @@ public class ContractController {
         contractService.deleteContractTerm(termId);
         return ResponseEntity.ok(ApiResponseDTO.success("Contract term deleted"));
     }
+
+    @PatchMapping("/internal/vendor/{vendorId}/name")
+    @Operation(summary = "Internal: propagate vendor name change to all contracts [INTERNAL]")
+    public ResponseEntity<ApiResponseDTO<Void>> propagateVendorName(
+            @PathVariable Long vendorId,
+            @RequestParam String name) {
+        contractService.propagateVendorNameChange(vendorId, name);
+        return ResponseEntity.ok(ApiResponseDTO.success("Vendor name propagated"));
+    }
 }
 

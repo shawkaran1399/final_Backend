@@ -115,9 +115,16 @@ public class AuditServiceImpl implements AuditService {
     @Override
     public void deleteAudit(Long auditId) {
         Audit audit = findById(auditId);
+        // auditDate is set the moment the audit moves to IN_PROGRESS.
+        // If set, the audit was started and its record must be preserved for regulatory compliance.
+        if (audit.getAuditDate() != null) {
+            throw new BadRequestException(
+                "Audit " + auditId + " was already started and cannot be deleted. " +
+                "Once an audit begins, its record is immutable for regulatory compliance.");
+        }
         if (audit.getStatus() != AuditStatus.SCHEDULED && audit.getStatus() != AuditStatus.CANCELLED) {
             throw new BadRequestException(
-                "Only SCHEDULED or CANCELLED audits can be deleted. Current status: " + audit.getStatus());
+                "Only SCHEDULED or CANCELLED (never-started) audits can be deleted. Current status: " + audit.getStatus());
         }
         auditRepository.delete(audit);
         log.info("Audit deleted: id={}", auditId);

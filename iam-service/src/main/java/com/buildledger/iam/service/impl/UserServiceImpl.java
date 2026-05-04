@@ -13,6 +13,8 @@ import com.buildledger.iam.repository.UserRepository;
 import com.buildledger.iam.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -110,7 +112,29 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public void deleteUser(Long userId) {
-        userRepository.delete(findById(userId));
+        User target = findById(userId);
+
+        // Prevent self-deletion
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null) {
+            userRepository.findByUsername(auth.getName()).ifPresent(caller -> {
+                if (caller.getUserId().equals(userId)) {
+                    throw new BadRequestException("Administrators cannot delete their own account.");
+                }
+            });
+        }
+
+        // Prevent deleting the last remaining ADMIN
+        if (target.getRole() == Role.ADMIN) {
+            long adminCount = userRepository.findByRole(Role.ADMIN).stream()
+                .filter(u -> u.getStatus() == UserStatus.ACTIVE).count();
+            if (adminCount <= 1) {
+                throw new BadRequestException(
+                    "Cannot delete the last active administrator. Promote another user to ADMIN first.");
+            }
+        }
+
+        userRepository.delete(target);
         log.info("User deleted: id={}", userId);
     }
 

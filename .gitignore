@@ -1,1 +1,13 @@
 /target
+target/
+.idea/
+*.iml
+*.log
+*.class 
+*.jar
+*.war   
+*.ear
+*.db
+*.sql
+*.sqlite    
+

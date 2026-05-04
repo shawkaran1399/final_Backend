@@ -24,8 +24,8 @@ public class InvoiceController {
     private final FinanceService financeService;
 
     @PostMapping
-    @PreAuthorize("hasRole('VENDOR') or hasRole('FINANCE_OFFICER') or hasRole('ADMIN')")
-    @Operation(summary = "Submit invoice [VENDOR / FINANCE_OFFICER / ADMIN]")
+    @PreAuthorize("hasRole('VENDOR') or hasRole('ADMIN')")
+    @Operation(summary = "Submit invoice [VENDOR / ADMIN]")
     public ResponseEntity<ApiResponseDTO<InvoiceResponseDTO>> submitInvoice(@Valid @RequestBody InvoiceRequestDTO req) {
         return ResponseEntity.status(HttpStatus.CREATED)
             .body(ApiResponseDTO.success("Invoice submitted for review", financeService.submitInvoice(req)));

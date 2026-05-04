@@ -4,12 +4,14 @@ import com.buildledger.contract.dto.request.ProjectRequestDTO;
 import com.buildledger.contract.dto.response.ApiResponseDTO;
 import com.buildledger.contract.dto.response.ProjectResponseDTO;
 import com.buildledger.contract.entity.Project;
+import com.buildledger.contract.enums.ContractStatus;
 import com.buildledger.contract.enums.ProjectStatus;
 import com.buildledger.contract.exception.BadRequestException;
 import com.buildledger.contract.exception.ResourceNotFoundException;
 import com.buildledger.contract.exception.ServiceUnavailableException;
 import com.buildledger.contract.feign.IamServiceClient;
 import com.buildledger.contract.feign.IamServiceFallback;
+import com.buildledger.contract.repository.ContractRepository;
 import com.buildledger.contract.repository.ProjectRepository;
 import com.buildledger.contract.service.ProjectService;
 import feign.FeignException;
@@ -30,6 +32,7 @@ import java.util.stream.Collectors;
 public class ProjectServiceImpl implements ProjectService {
 
     private final ProjectRepository projectRepository;
+    private final ContractRepository contractRepository;
     private final IamServiceClient iamServiceClient;
 
     @Override
@@ -78,6 +81,11 @@ public class ProjectServiceImpl implements ProjectService {
     public ProjectResponseDTO updateProject(Long projectId, ProjectRequestDTO request) {
         Project project = findById(projectId);
 
+        if (project.getStatus() == ProjectStatus.COMPLETED || project.getStatus() == ProjectStatus.CANCELLED) {
+            throw new BadRequestException(
+                "Cannot modify a " + project.getStatus() + " project. Historical records are immutable.");
+        }
+
         if (request.getEndDate() != null && request.getStartDate() != null
                 && request.getEndDate().isBefore(request.getStartDate())) {
             throw new BadRequestException("End date cannot be before start date");
@@ -121,7 +129,15 @@ public class ProjectServiceImpl implements ProjectService {
 
     @Override
     public void deleteProject(Long projectId) {
-        projectRepository.delete(findById(projectId));
+        Project project = findById(projectId);
+        boolean hasNonTerminalContracts = contractRepository.findByProjectId(projectId).stream()
+            .anyMatch(c -> c.getStatus() == ContractStatus.DRAFT || c.getStatus() == ContractStatus.ACTIVE);
+        if (hasNonTerminalContracts) {
+            throw new BadRequestException(
+                "Cannot delete project '" + project.getName() +
+                "' because it has active or draft contracts. Terminate or complete all contracts first.");
+        }
+        projectRepository.delete(project);
         log.info("Project deleted: id={}", projectId);
     }
 
