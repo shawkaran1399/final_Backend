@@ -45,6 +45,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Public: vendor self-registration and document upload (vendor has no token yet)
                 .requestMatchers(HttpMethod.POST, "/vendors/register").permitAll()
+                .requestMatchers(HttpMethod.POST, "/vendors/auth/login").permitAll()
                 .requestMatchers(HttpMethod.POST, "/vendors/*/documents").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/vendors/*/documents/replace").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/actuator/**").permitAll()

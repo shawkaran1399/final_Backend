@@ -2,12 +2,15 @@ package com.buildledger.vendor.controller;
 
 import com.buildledger.vendor.dto.request.CreateVendorRequestDTO;
 import com.buildledger.vendor.dto.request.UpdateVendorRequestDTO;
+import com.buildledger.vendor.dto.request.VendorLoginRequestDTO;
 import com.buildledger.vendor.dto.response.ApiResponseDTO;
 import com.buildledger.vendor.dto.response.VendorDocumentResponseDTO;
+import com.buildledger.vendor.dto.response.VendorLoginResponseDTO;
 import com.buildledger.vendor.dto.response.VendorResponseDTO;
 import com.buildledger.vendor.enums.DocumentType;
 import com.buildledger.vendor.enums.VendorStatus;
 import com.buildledger.vendor.enums.VerificationStatus;
+import com.buildledger.vendor.service.VendorAuthService;
 import com.buildledger.vendor.service.VendorService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -35,6 +38,16 @@ import java.util.List;
 public class VendorController {
 
     private final VendorService vendorService;
+    private final VendorAuthService vendorAuthService;
+
+    @PostMapping("/auth/login")
+    @Operation(summary = "Pending vendor login [PUBLIC]")
+    public ResponseEntity<ApiResponseDTO<VendorLoginResponseDTO>> loginPendingVendor(
+            @Valid @RequestBody VendorLoginRequestDTO request) {
+        return ResponseEntity.ok(
+            ApiResponseDTO.success("Login successful", vendorAuthService.loginPendingVendor(request))
+        );
+    }
 
     @PostMapping("/register")
     @Operation(summary = "Vendor self-registration [PUBLIC]")

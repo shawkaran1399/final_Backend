@@ -14,5 +14,6 @@ public interface VendorRepository extends JpaRepository<Vendor, Long> {
     boolean existsByUsername(String username);
     List<Vendor> findByStatus(VendorStatus status);
     Optional<Vendor> findByUserId(Long userId);
+    Optional<Vendor> findByUsername(String username);
 }
 
