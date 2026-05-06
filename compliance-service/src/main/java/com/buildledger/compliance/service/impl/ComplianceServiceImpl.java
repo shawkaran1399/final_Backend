@@ -113,6 +113,16 @@ public class ComplianceServiceImpl implements ComplianceService {
                 ". Lifecycle: PENDING→UNDER_REVIEW, UNDER_REVIEW→PASSED|FAILED|WAIVED, FAILED→PENDING.");
         }
 
+        if (current == ComplianceStatus.FAILED && newStatus == ComplianceStatus.PENDING) {
+            int retries = record.getRetryCount() + 1;
+            if (retries >= 3) {
+                throw new BadRequestException(
+                    "Compliance record #" + id + " has exceeded the maximum retry limit (3). " +
+                    "Manual escalation required.");
+            }
+            record.setRetryCount(retries);
+        }
+
         record.setStatus(newStatus);
         record.setReviewedBy(reviewerUsername);
         ComplianceRecordResponseDTO result = mapToResponse(complianceRecordRepository.save(record));
@@ -192,6 +202,12 @@ public class ComplianceServiceImpl implements ComplianceService {
         }
         if (!res.isSuccess() || res.getData() == null) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
+        }
+        String contractStatus = (String) res.getData().get("status");
+        if (!"ACTIVE".equals(contractStatus) && !"COMPLETED".equals(contractStatus)) {
+            throw new BadRequestException(
+                "Compliance records can only be created for ACTIVE or COMPLETED contracts. " +
+                "Contract #" + contractId + " has status: " + contractStatus);
         }
     }
 

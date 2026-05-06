@@ -29,11 +29,14 @@ public class AuditController {
     @PostMapping
     @PreAuthorize("hasRole('COMPLIANCE_OFFICER') or hasRole('ADMIN')")
     @Operation(summary = "Create audit [COMPLIANCE_OFFICER / ADMIN]",
-               description = "Validates that the complianceOfficerId exists in IAM and has COMPLIANCE_OFFICER role")
+               description = "Validates that the complianceOfficerId exists in IAM and matches the authenticated user (ADMIN may assign to others)")
     public ResponseEntity<ApiResponseDTO<AuditResponseDTO>> createAudit(
-            @Valid @RequestBody AuditRequestDTO request) {
+            @Valid @RequestBody AuditRequestDTO request,
+            @RequestHeader("X-User-Id") Long requestUserId,
+            @RequestHeader("X-Role") String requestUserRole) {
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponseDTO.success("Audit scheduled", auditService.createAudit(request)));
+            .body(ApiResponseDTO.success("Audit scheduled",
+                auditService.createAudit(request, requestUserId, requestUserRole)));
     }
 
     @GetMapping
