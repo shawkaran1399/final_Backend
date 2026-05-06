@@ -7,7 +7,15 @@ server:
     max-file-size: 10MB
     max-request-size: 12MB
 
+# Add this to application.yml of all 5 publisher services
 spring:
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
   application:
     name: vendor-service
   servlet:

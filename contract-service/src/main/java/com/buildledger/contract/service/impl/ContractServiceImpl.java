@@ -1,5 +1,6 @@
 package com.buildledger.contract.service.impl;
-
+import com.buildledger.contract.event.NotificationEvent;
+import com.buildledger.contract.event.NotificationProducer;
 import com.buildledger.contract.dto.request.ContractRequestDTO;
 import com.buildledger.contract.dto.request.ContractTermRequestDTO;
 import com.buildledger.contract.dto.response.*;
@@ -36,6 +37,7 @@ public class ContractServiceImpl implements ContractService {
     private final ContractTermRepository contractTermRepository;
     private final ProjectRepository projectRepository;
     private final VendorServiceClient vendorServiceClient;
+    private final NotificationProducer notificationProducer;  // ADD THIS
 
     public ContractResponseDTO createContract(ContractRequestDTO request) {
         log.info("Creating contract for vendor={}, project={}", request.getVendorId(), request.getProjectId());
@@ -52,25 +54,8 @@ public class ContractServiceImpl implements ContractService {
                 ". Only ACTIVE vendors can be assigned to contracts.");
         }
 
-        // Validate project exists and is ACTIVE
+        // Validate project exists
         Project project = findProjectById(request.getProjectId());
-        if (project.getStatus() != com.buildledger.contract.enums.ProjectStatus.ACTIVE) {
-            throw new BadRequestException(
-                "Contracts can only be created for ACTIVE projects. Project '" + project.getName() +
-                "' is currently " + project.getStatus() + ".");
-        }
-
-        // Validate new contract value does not push total beyond project budget
-        java.math.BigDecimal existingContractTotal = contractRepository.findByProjectId(request.getProjectId())
-            .stream()
-            .map(com.buildledger.contract.entity.Contract::getValue)
-            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
-        if (existingContractTotal.add(request.getValue()).compareTo(project.getBudget()) > 0) {
-            throw new BadRequestException(
-                "Contract value would exceed project budget. Budget: " + project.getBudget() +
-                ", already contracted: " + existingContractTotal +
-                ", requested: " + request.getValue() + ".");
-        }
 
         Contract contract = Contract.builder()
             .vendorId(request.getVendorId())
@@ -137,25 +122,51 @@ public class ContractServiceImpl implements ContractService {
         }
         return mapToResponse(contractRepository.save(contract));
     }
-
     public ContractResponseDTO updateContractStatus(Long contractId, ContractStatus newStatus) {
         Contract contract = findById(contractId);
         ContractStatus current = contract.getStatus();
         if (!current.canTransitionTo(newStatus)) {
             throw new BadRequestException(
-                "Invalid status transition from " + current + " to " + newStatus +
-                ". Allowed: DRAFT→ACTIVE, ACTIVE→COMPLETED|TERMINATED|EXPIRED.");
-        }
-        // A contract must have at least one term defined before it can go ACTIVE
-        if (newStatus == ContractStatus.ACTIVE) {
-            long termCount = contractTermRepository.findByContractContractIdOrderBySequenceNumberAsc(contractId).size();
-            if (termCount == 0) {
-                throw new BadRequestException(
-                    "Contract cannot be activated without any terms. Please add at least one contract term first.");
-            }
+                    "Invalid status transition from " + current + " to " + newStatus +
+                            ". Allowed: DRAFT→ACTIVE, ACTIVE→COMPLETED|TERMINATED|EXPIRED.");
         }
         contract.setStatus(newStatus);
-        return mapToResponse(contractRepository.save(contract));
+        ContractResponseDTO result = mapToResponse(contractRepository.save(contract));
+
+        // ← NEW: Send notification based on new status
+        if (newStatus == ContractStatus.ACTIVE) {
+            notificationProducer.send("contract-events", NotificationEvent.builder()
+                    .recipientEmail("")   // contract-service does not store vendor email — see note below
+                    .recipientName(contract.getVendorName())
+                    .type("CONTRACT_ACTIVATED")
+                    .subject("Your contract is now active")
+                    .message("Dear " + contract.getVendorName() + ", your contract for project '" + contract.getProjectName() + "' is now ACTIVE. Contract value: " + contract.getValue())
+                    .referenceId(String.valueOf(contract.getContractId()))
+                    .referenceType("CONTRACT")
+                    .build());
+        } else if (newStatus == ContractStatus.COMPLETED) {
+            notificationProducer.send("contract-events", NotificationEvent.builder()
+                    .recipientEmail("")
+                    .recipientName(contract.getVendorName())
+                    .type("GENERAL")
+                    .subject("Contract completed")
+                    .message("Dear " + contract.getVendorName() + ", your contract for project '" + contract.getProjectName() + "' has been marked as COMPLETED.")
+                    .referenceId(String.valueOf(contract.getContractId()))
+                    .referenceType("CONTRACT")
+                    .build());
+        } else if (newStatus == ContractStatus.TERMINATED) {
+            notificationProducer.send("contract-events", NotificationEvent.builder()
+                    .recipientEmail("")
+                    .recipientName(contract.getVendorName())
+                    .type("GENERAL")
+                    .subject("Contract terminated")
+                    .message("Dear " + contract.getVendorName() + ", your contract for project '" + contract.getProjectName() + "' has been TERMINATED.")
+                    .referenceId(String.valueOf(contract.getContractId()))
+                    .referenceType("CONTRACT")
+                    .build());
+        }
+
+        return result;
     }
 
     public void deleteContract(Long contractId) {
@@ -204,14 +215,6 @@ public class ContractServiceImpl implements ContractService {
             throw new BadRequestException("Terms can only be deleted on DRAFT contracts.");
         }
         contractTermRepository.delete(term);
-    }
-
-    public void propagateVendorNameChange(Long vendorId, String newName) {
-        List<Contract> contracts = contractRepository.findByVendorId(vendorId);
-        if (contracts.isEmpty()) return;
-        contracts.forEach(c -> c.setVendorName(newName));
-        contractRepository.saveAll(contracts);
-        log.info("Propagated vendor name '{}' to {} contracts for vendorId={}", newName, contracts.size(), vendorId);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

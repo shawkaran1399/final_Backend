@@ -21,21 +21,8 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .exceptionHandling(ex -> ex
-                .authenticationEntryPoint((req, res, authEx) -> {
-                    res.setContentType("application/json;charset=UTF-8");
-                    res.setStatus(jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED);
-                    res.getWriter().write(
-                        "{\"success\":false,\"message\":\"Authentication required. Please provide a valid Bearer token.\"}");
-                })
-                .accessDeniedHandler((req, res, accessEx) -> {
-                    res.setContentType("application/json;charset=UTF-8");
-                    res.setStatus(jakarta.servlet.http.HttpServletResponse.SC_FORBIDDEN);
-                    res.getWriter().write(
-                        "{\"success\":false,\"message\":\"Access denied: insufficient permissions.\"}");
-                })
-            )
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.GET, "/compliance/**", "/audits/**").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/actuator/**").permitAll()
                 .anyRequest().authenticated())
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

@@ -1,5 +1,7 @@
 package com.buildledger.vendor.service.impl;
 
+import com.buildledger.vendor.event.NotificationEvent;
+import com.buildledger.vendor.event.NotificationProducer;
 import com.buildledger.vendor.dto.request.CreateVendorRequestDTO;
 import com.buildledger.vendor.dto.request.UpdateVendorRequestDTO;
 import com.buildledger.vendor.dto.response.ApiResponseDTO;
@@ -13,8 +15,6 @@ import com.buildledger.vendor.enums.VerificationStatus;
 import com.buildledger.vendor.exception.BadRequestException;
 import com.buildledger.vendor.exception.DuplicateResourceException;
 import com.buildledger.vendor.exception.ResourceNotFoundException;
-import com.buildledger.vendor.feign.ContractServiceClient;
-import com.buildledger.vendor.feign.ContractServiceFallback;
 import com.buildledger.vendor.feign.IamServiceClient;
 import com.buildledger.vendor.repository.VendorDocumentRepository;
 import com.buildledger.vendor.repository.VendorRepository;
@@ -45,7 +45,7 @@ public class VendorServiceImpl implements VendorService {
     private final VendorDocumentRepository vendorDocumentRepository;
     private final LocalFileStorageService fileStorageService;
     private final IamServiceClient iamServiceClient;
-    private final ContractServiceClient contractServiceClient;
+    private final NotificationProducer notificationProducer;
 
     @Value("${app.document.max-size-mb:10}")
     private long maxFileSizeMb;
@@ -63,16 +63,29 @@ public class VendorServiceImpl implements VendorService {
         }
         String encodedPassword = new BCryptPasswordEncoder(12).encode(request.getPassword());
         Vendor vendor = Vendor.builder()
-            .name(request.getName())
-            .contactInfo(request.getContactInfo())
-            .email(request.getEmail())
-            .phone(request.getPhone())
-            .category(request.getCategory())
-            .address(request.getAddress())
-            .username(request.getUsername())
-            .passwordHash(encodedPassword)
-            .build();
-        return mapToResponse(vendorRepository.save(vendor));
+                .name(request.getName())
+                .contactInfo(request.getContactInfo())
+                .email(request.getEmail())
+                .phone(request.getPhone())
+                .category(request.getCategory())
+                .address(request.getAddress())
+                .username(request.getUsername())
+                .passwordHash(encodedPassword)
+                .build();
+        VendorResponseDTO result = mapToResponse(vendorRepository.save(vendor));
+
+        notificationProducer.send("vendor-events", NotificationEvent.builder()
+                .recipientEmail(request.getEmail())
+                .recipientName(request.getName())
+                .type("VENDOR_REGISTERED")
+                .subject("Welcome to BuildLedger — Registration Received")
+                .message("Dear " + request.getName() + ", your vendor registration has been received successfully. "
+                        + "Please upload your documents to proceed with verification.")
+                .referenceId(String.valueOf(result.getVendorId()))
+                .referenceType("VENDOR")
+                .build());
+
+        return result;
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
@@ -102,7 +115,7 @@ public class VendorServiceImpl implements VendorService {
         Vendor vendor = findVendorById(vendorId);
         if (vendor.getStatus() != VendorStatus.ACTIVE) {
             throw new BadRequestException(
-                "Only ACTIVE vendors can update their profile. Current status: " + vendor.getStatus());
+                    "Only ACTIVE vendors can update their profile. Current status: " + vendor.getStatus());
         }
         if (request.getName() != null) vendor.setName(request.getName());
         if (request.getContactInfo() != null) vendor.setContactInfo(request.getContactInfo());
@@ -116,94 +129,86 @@ public class VendorServiceImpl implements VendorService {
             }
             vendor.setEmail(request.getEmail());
         }
-        VendorResponseDTO saved = mapToResponse(vendorRepository.save(vendor));
+        VendorResponseDTO result = mapToResponse(vendorRepository.save(vendor));
 
-        // Propagate name change to contract-service cache (best-effort)
-        if (request.getName() != null) {
-            try {
-                contractServiceClient.propagateVendorName(vendorId, vendor.getName());
-            } catch (Exception e) {
-                log.warn("Could not propagate vendor name change to contract-service: {}", e.getMessage());
-            }
-        }
-        return saved;
+        notificationProducer.send("vendor-events", NotificationEvent.builder()
+                .recipientEmail(vendor.getEmail())
+                .recipientName(vendor.getName())
+                .type("VENDOR_PROFILE_UPDATED")
+                .subject("Your vendor profile has been updated")
+                .message("Dear " + vendor.getName() + ", your vendor profile has been updated successfully.")
+                .referenceId(String.valueOf(vendor.getVendorId()))
+                .referenceType("VENDOR")
+                .build());
+
+        return result;
     }
 
     @Override
     public void deleteVendor(Long vendorId) {
         Vendor vendor = findVendorById(vendorId);
-
-        // Guard: deny deletion if vendor is assigned to any contract (regardless of contract status)
-        try {
-            ApiResponseDTO<java.util.List<java.util.Map<String, Object>>> contractsResponse =
-                contractServiceClient.getContractsByVendor(vendorId);
-
-            if (!contractsResponse.isSuccess() &&
-                    com.buildledger.vendor.feign.ContractServiceFallback.MARKER.equals(contractsResponse.getMessage())) {
-                throw new BadRequestException(
-                    "Cannot delete vendor '" + vendor.getName() +
-                    "': contract service is unavailable. Please try again later.");
-            }
-
-            if (contractsResponse.isSuccess()
-                    && contractsResponse.getData() != null
-                    && !contractsResponse.getData().isEmpty()) {
-                throw new BadRequestException(
-                    "Cannot delete vendor '" + vendor.getName() +
-                    "' because they are assigned to one or more contracts. " +
-                    "Remove all contract assignments first.");
-            }
-        } catch (BadRequestException e) {
-            throw e;
-        } catch (Exception e) {
-            log.warn("Could not verify contracts for vendor {} before deletion: {}", vendorId, e.getMessage());
-            throw new BadRequestException(
-                "Cannot delete vendor '" + vendor.getName() +
-                "': unable to verify contract assignments. Please try again later.");
-        }
-
-        // Delete all documents from DB and disk before deleting the vendor (avoids FK constraint violation)
-        vendorDocumentRepository.findAllByVendorVendorId(vendorId).forEach(doc -> {
-            fileStorageService.delete(doc.getFileUri());
-            vendorDocumentRepository.delete(doc);
-        });
+        vendorDocumentRepository.findByVendorVendorId(vendorId)
+                .ifPresent(doc -> fileStorageService.delete(doc.getFileUri()));
         vendorRepository.delete(vendor);
         log.info("Vendor deleted: id={}", vendorId);
+
+        notificationProducer.send("vendor-events", NotificationEvent.builder()
+                .recipientEmail(vendor.getEmail())
+                .recipientName(vendor.getName())
+                .type("VENDOR_DELETED")
+                .subject("Your vendor account has been deleted")
+                .message("Dear " + vendor.getName() + ", your vendor account has been permanently "
+                        + "deleted from BuildLedger. Please contact support if this was unexpected.")
+                .referenceId(String.valueOf(vendorId))
+                .referenceType("VENDOR")
+                .build());
     }
 
     // ── Document Upload ───────────────────────────────────────────────────────
 
     @Override
     public VendorDocumentResponseDTO uploadDocument(Long vendorId, MultipartFile file,
-                                                     DocumentType docType, String remarks,
-                                                     String uploaderUsername) {
+                                                    DocumentType docType, String remarks,
+                                                    String uploaderUsername) {
         log.info("Document upload: vendorId={}, docType={}, uploader={}", vendorId, docType, uploaderUsername);
         Vendor vendor = findVendorById(vendorId);
 
         if (vendor.getStatus() != VendorStatus.PENDING) {
             throw new BadRequestException(
-                "Document upload is not allowed. Vendor status is " + vendor.getStatus() +
-                ". Only PENDING vendors can upload documents.");
+                    "Document upload is not allowed. Vendor status is " + vendor.getStatus() +
+                            ". Only PENDING vendors can upload documents.");
         }
         if (vendorDocumentRepository.findByVendorVendorId(vendorId).isPresent()) {
             throw new BadRequestException(
-                "A document has already been uploaded for this vendor. Only one document per vendor is allowed.");
+                    "A document has already been uploaded for this vendor. Only one document per vendor is allowed.");
         }
 
         validateFile(file);
         String fileUri = fileStorageService.store(file, vendorId);
 
         VendorDocument document = VendorDocument.builder()
-            .vendor(vendor)
-            .docType(docType)
-            .fileUri(fileUri)
-            .uploadedDate(LocalDate.now())
-            .verificationStatus(VerificationStatus.PENDING)
-            .remarks(remarks)
-            .build();
+                .vendor(vendor)
+                .docType(docType)
+                .fileUri(fileUri)
+                .uploadedDate(LocalDate.now())
+                .verificationStatus(VerificationStatus.PENDING)
+                .remarks(remarks)
+                .build();
 
         VendorDocument saved = vendorDocumentRepository.save(document);
         log.info("Document saved: id={}", saved.getDocumentId());
+
+        notificationProducer.send("vendor-events", NotificationEvent.builder()
+                .recipientEmail(vendor.getEmail())
+                .recipientName(vendor.getName())
+                .type("VENDOR_DOCUMENT_PENDING")
+                .subject("Document uploaded — pending review")
+                .message("Dear " + vendor.getName() + ", your document has been uploaded successfully and is now "
+                        + "pending review by our team. You will be notified once the review is complete.")
+                .referenceId(String.valueOf(vendor.getVendorId()))
+                .referenceType("VENDOR")
+                .build());
+
         return mapDocumentToResponse(saved);
     }
 
@@ -212,7 +217,7 @@ public class VendorServiceImpl implements VendorService {
     public VendorDocumentResponseDTO getVendorDocument(Long vendorId) {
         findVendorById(vendorId);
         VendorDocument doc = vendorDocumentRepository.findByVendorVendorId(vendorId)
-            .orElseThrow(() -> new ResourceNotFoundException("VendorDocument", "vendorId", vendorId));
+                .orElseThrow(() -> new ResourceNotFoundException("VendorDocument", "vendorId", vendorId));
         return mapDocumentToResponse(doc);
     }
 
@@ -220,7 +225,7 @@ public class VendorServiceImpl implements VendorService {
     @Transactional(readOnly = true)
     public List<VendorDocumentResponseDTO> getDocumentsByStatus(VerificationStatus status) {
         return vendorDocumentRepository.findByVerificationStatus(status).stream()
-            .map(this::mapDocumentToResponse).collect(Collectors.toList());
+                .map(this::mapDocumentToResponse).collect(Collectors.toList());
     }
 
     @Override
@@ -239,22 +244,22 @@ public class VendorServiceImpl implements VendorService {
 
     @Override
     public VendorDocumentResponseDTO replaceDocument(Long vendorId, MultipartFile file,
-                                                      DocumentType docType, String remarks) {
+                                                     DocumentType docType, String remarks) {
         log.info("Document replace: vendorId={}", vendorId);
         Vendor vendor = findVendorById(vendorId);
 
         if (vendor.getStatus() != VendorStatus.PENDING) {
             throw new BadRequestException(
-                "Document replacement is not allowed. Only PENDING vendors can replace their document. " +
-                "Current status: " + vendor.getStatus());
+                    "Document replacement is not allowed. Only PENDING vendors can replace their document. " +
+                            "Current status: " + vendor.getStatus());
         }
 
         VendorDocument existing = vendorDocumentRepository.findByVendorVendorId(vendorId)
-            .orElseThrow(() -> new ResourceNotFoundException("VendorDocument", "vendorId", vendorId));
+                .orElseThrow(() -> new ResourceNotFoundException("VendorDocument", "vendorId", vendorId));
 
         if (existing.getVerificationStatus() != VerificationStatus.PENDING) {
             throw new BadRequestException(
-                "Cannot replace a document that has already been " + existing.getVerificationStatus() + ".");
+                    "Cannot replace a document that has already been " + existing.getVerificationStatus() + ".");
         }
 
         validateFile(file);
@@ -267,12 +272,25 @@ public class VendorServiceImpl implements VendorService {
         existing.setVerificationStatus(VerificationStatus.PENDING);
         existing.setRemarks(remarks);
 
-        return mapDocumentToResponse(vendorDocumentRepository.save(existing));
+        VendorDocumentResponseDTO result = mapDocumentToResponse(vendorDocumentRepository.save(existing));
+
+        notificationProducer.send("vendor-events", NotificationEvent.builder()
+                .recipientEmail(vendor.getEmail())
+                .recipientName(vendor.getName())
+                .type("VENDOR_DOCUMENT_REPLACED")
+                .subject("Document replaced — pending review")
+                .message("Dear " + vendor.getName() + ", your document has been replaced successfully "
+                        + "and is now pending review again. You will be notified once reviewed.")
+                .referenceId(String.valueOf(vendor.getVendorId()))
+                .referenceType("VENDOR")
+                .build());
+
+        return result;
     }
 
     @Override
     public VendorDocumentResponseDTO reviewDocument(Long documentId, VerificationStatus status,
-                                                     String reviewRemarks, String reviewerUsername) {
+                                                    String reviewRemarks, String reviewerUsername) {
         log.info("Document review: id={}, newStatus={}, reviewer={}", documentId, status, reviewerUsername);
 
         if (status == VerificationStatus.PENDING) {
@@ -282,8 +300,8 @@ public class VendorServiceImpl implements VendorService {
         VendorDocument document = findDocumentById(documentId);
         if (document.getVerificationStatus() != VerificationStatus.PENDING) {
             throw new BadRequestException(
-                "Document is already " + document.getVerificationStatus() +
-                " and cannot be reviewed again. The decision is final.");
+                    "Document is already " + document.getVerificationStatus() +
+                            " and cannot be reviewed again. The decision is final.");
         }
 
         document.setVerificationStatus(status);
@@ -291,6 +309,35 @@ public class VendorServiceImpl implements VendorService {
         document.setReviewedAt(LocalDateTime.now());
         document.setReviewRemarks(reviewRemarks);
         vendorDocumentRepository.save(document);
+
+        if (status == VerificationStatus.APPROVED) {
+            notificationProducer.send("vendor-events", NotificationEvent.builder()
+                    .recipientEmail(document.getVendor().getEmail())
+                    .recipientName(document.getVendor().getName())
+                    .type("VENDOR_DOCUMENT_APPROVED")
+                    .subject("Your document has been approved")
+                    .message("Dear " + document.getVendor().getName() + ", your submitted document "
+                            + "has been APPROVED by " + reviewerUsername
+                            + ". Your account will be activated shortly.")
+                    .referenceId(String.valueOf(document.getVendor().getVendorId()))
+                    .referenceType("VENDOR")
+                    .build());
+        }
+
+        if (status == VerificationStatus.REJECTED) {
+            notificationProducer.send("vendor-events", NotificationEvent.builder()
+                    .recipientEmail(document.getVendor().getEmail())
+                    .recipientName(document.getVendor().getName())
+                    .type("VENDOR_DOCUMENT_REJECTED")
+                    .subject("Your document has been rejected")
+                    .message("Dear " + document.getVendor().getName() + ", your submitted document "
+                            + "has been REJECTED by " + reviewerUsername
+                            + ". Reason: " + reviewRemarks
+                            + ". Your account has been suspended.")
+                    .referenceId(String.valueOf(document.getVendor().getVendorId()))
+                    .referenceType("VENDOR")
+                    .build());
+        }
 
         autoUpdateVendorStatus(document.getVendor());
         return mapDocumentToResponse(document);
@@ -307,11 +354,34 @@ public class VendorServiceImpl implements VendorService {
                 vendorRepository.save(vendor);
                 log.info("Vendor {} auto-promoted to ACTIVE", vendor.getVendorId());
                 createVendorUserAccount(vendor);
+
+                notificationProducer.send("vendor-events", NotificationEvent.builder()
+                        .recipientEmail(vendor.getEmail())
+                        .recipientName(vendor.getName())
+                        .type("VENDOR_ACTIVATED")
+                        .subject("Your vendor account is now ACTIVE!")
+                        .message("Congratulations " + vendor.getName() + "! Your vendor account has been "
+                                + "activated. You can now log in and start working on contracts.")
+                        .referenceId(String.valueOf(vendor.getVendorId()))
+                        .referenceType("VENDOR")
+                        .build());
+
             } else if (doc.getVerificationStatus() == VerificationStatus.REJECTED) {
                 vendor.setStatus(VendorStatus.SUSPENDED);
                 vendor.setUserId(null);
                 vendorRepository.save(vendor);
                 log.info("Vendor {} SUSPENDED due to rejected document", vendor.getVendorId());
+
+                notificationProducer.send("vendor-events", NotificationEvent.builder()
+                        .recipientEmail(vendor.getEmail())
+                        .recipientName(vendor.getName())
+                        .type("VENDOR_SUSPENDED")
+                        .subject("Your vendor account has been suspended")
+                        .message("Dear " + vendor.getName() + ", your vendor account has been suspended due to "
+                                + "rejected document verification. Please contact support for assistance.")
+                        .referenceId(String.valueOf(vendor.getVendorId()))
+                        .referenceType("VENDOR")
+                        .build());
             }
         });
     }
@@ -334,7 +404,7 @@ public class VendorServiceImpl implements VendorService {
 
         try {
             ApiResponseDTO<?> response = iamServiceClient.createVendorUser(
-                username, encodedPassword, vendor.getName(), vendor.getEmail(), vendor.getPhone());
+                    username, encodedPassword, vendor.getName(), vendor.getEmail(), vendor.getPhone());
 
             if (response.isSuccess() && response.getData() != null) {
                 Object data = response.getData();
@@ -359,7 +429,7 @@ public class VendorServiceImpl implements VendorService {
             throw new BadRequestException("No file provided. Please attach a PDF file.");
         }
         String originalName = StringUtils.cleanPath(
-            file.getOriginalFilename() != null ? file.getOriginalFilename() : "document.pdf");
+                file.getOriginalFilename() != null ? file.getOriginalFilename() : "document.pdf");
         if (!originalName.toLowerCase().endsWith(".pdf")) {
             throw new BadRequestException("Only PDF files are accepted. Got: " + originalName);
         }
@@ -370,40 +440,39 @@ public class VendorServiceImpl implements VendorService {
         long maxBytes = maxFileSizeMb * 1024 * 1024;
         if (file.getSize() > maxBytes) {
             throw new BadRequestException("File size " + (file.getSize() / (1024 * 1024)) +
-                " MB exceeds the allowed limit of " + maxFileSizeMb + " MB.");
+                    " MB exceeds the allowed limit of " + maxFileSizeMb + " MB.");
         }
     }
 
     private Vendor findVendorById(Long vendorId) {
         return vendorRepository.findById(vendorId)
-            .orElseThrow(() -> new ResourceNotFoundException("Vendor", "id", vendorId));
+                .orElseThrow(() -> new ResourceNotFoundException("Vendor", "id", vendorId));
     }
 
     private VendorDocument findDocumentById(Long documentId) {
         return vendorDocumentRepository.findById(documentId)
-            .orElseThrow(() -> new ResourceNotFoundException("VendorDocument", "id", documentId));
+                .orElseThrow(() -> new ResourceNotFoundException("VendorDocument", "id", documentId));
     }
 
     private VendorResponseDTO mapToResponse(Vendor v) {
         return VendorResponseDTO.builder()
-            .vendorId(v.getVendorId()).name(v.getName()).contactInfo(v.getContactInfo())
-            .email(v.getEmail()).phone(v.getPhone()).category(v.getCategory()).address(v.getAddress())
-            .username(v.getUsername())
-            .status(v.getStatus())
-            .userId(v.getStatus() == VendorStatus.ACTIVE ? v.getUserId() : null)
-            .createdAt(v.getCreatedAt()).updatedAt(v.getUpdatedAt()).build();
+                .vendorId(v.getVendorId()).name(v.getName()).contactInfo(v.getContactInfo())
+                .email(v.getEmail()).phone(v.getPhone()).category(v.getCategory()).address(v.getAddress())
+                .username(v.getUsername())
+                .status(v.getStatus())
+                .userId(v.getStatus() == VendorStatus.ACTIVE ? v.getUserId() : null)
+                .createdAt(v.getCreatedAt()).updatedAt(v.getUpdatedAt()).build();
     }
 
     private VendorDocumentResponseDTO mapDocumentToResponse(VendorDocument doc) {
         String fileUri = doc.getFileUri();
         String displayName = fileUri != null ? fileUri.replaceAll(".*[\\\\/]", "") : "unknown.pdf";
         return VendorDocumentResponseDTO.builder()
-            .documentId(doc.getDocumentId()).vendorId(doc.getVendor().getVendorId())
-            .vendorName(doc.getVendor().getName()).docType(doc.getDocType())
-            .fileUri(displayName).uploadedDate(doc.getUploadedDate())
-            .verificationStatus(doc.getVerificationStatus()).remarks(doc.getRemarks())
-            .reviewedBy(doc.getReviewedBy()).reviewedAt(doc.getReviewedAt())
-            .reviewRemarks(doc.getReviewRemarks()).createdAt(doc.getCreatedAt()).build();
+                .documentId(doc.getDocumentId()).vendorId(doc.getVendor().getVendorId())
+                .vendorName(doc.getVendor().getName()).docType(doc.getDocType())
+                .fileUri(displayName).uploadedDate(doc.getUploadedDate())
+                .verificationStatus(doc.getVerificationStatus()).remarks(doc.getRemarks())
+                .reviewedBy(doc.getReviewedBy()).reviewedAt(doc.getReviewedAt())
+                .reviewRemarks(doc.getReviewRemarks()).createdAt(doc.getCreatedAt()).build();
     }
 }
-

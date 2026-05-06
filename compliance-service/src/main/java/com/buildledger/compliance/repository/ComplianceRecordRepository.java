@@ -10,5 +10,6 @@ import java.util.List;
 public interface ComplianceRecordRepository extends JpaRepository<ComplianceRecord, Long> {
     List<ComplianceRecord> findByContractId(Long contractId);
     List<ComplianceRecord> findByStatus(ComplianceStatus status);
+    List<ComplianceRecord> findByStatusIn(List<ComplianceStatus> statuses);
 }
 

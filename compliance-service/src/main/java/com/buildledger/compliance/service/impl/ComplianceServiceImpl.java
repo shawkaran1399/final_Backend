@@ -1,5 +1,6 @@
 package com.buildledger.compliance.service.impl;
-
+import com.buildledger.compliance.event.NotificationEvent;
+import com.buildledger.compliance.event.NotificationProducer;
 import com.buildledger.compliance.dto.request.ComplianceRecordRequestDTO;
 import com.buildledger.compliance.dto.response.*;
 import com.buildledger.compliance.entity.ComplianceRecord;
@@ -29,6 +30,7 @@ public class ComplianceServiceImpl implements ComplianceService {
 
     private final ComplianceRecordRepository complianceRecordRepository;
     private final ContractServiceClient contractServiceClient;
+    private final NotificationProducer notificationProducer;  // ADD THIS
 
     @Override
     public ComplianceRecordResponseDTO createComplianceRecord(ComplianceRecordRequestDTO request,
@@ -113,7 +115,54 @@ public class ComplianceServiceImpl implements ComplianceService {
 
         record.setStatus(newStatus);
         record.setReviewedBy(reviewerUsername);
-        return mapToResponse(complianceRecordRepository.save(record));
+        ComplianceRecordResponseDTO result = mapToResponse(complianceRecordRepository.save(record));
+
+// Fires on EVERY status change
+        notificationProducer.send("compliance-events", NotificationEvent.builder()
+                .recipientEmail("")
+                .recipientName(reviewerUsername)
+                .type("COMPLIANCE_STATUS_CHANGED")
+                .subject("Compliance record #" + record.getComplianceId() + " status changed")
+                .message("Compliance record #" + record.getComplianceId()
+                        + " for contract #" + record.getContractId()
+                        + " status changed from " + current + " to " + newStatus
+                        + ". Reviewed by: " + reviewerUsername)
+                .referenceId(String.valueOf(record.getComplianceId()))
+                .referenceType("COMPLIANCE")
+                .build());
+
+// Fires only when PASSED
+        if (newStatus == ComplianceStatus.PASSED) {
+            notificationProducer.send("compliance-events", NotificationEvent.builder()
+                    .recipientEmail("")
+                    .recipientName(reviewerUsername)
+                    .type("COMPLIANCE_CHECK_PASSED")
+                    .subject("Compliance check passed for contract #" + record.getContractId())
+                    .message("Compliance record #" + record.getComplianceId()
+                            + " for contract #" + record.getContractId()
+                            + " has PASSED the compliance check. Reviewed by: " + reviewerUsername)
+                    .referenceId(String.valueOf(record.getComplianceId()))
+                    .referenceType("COMPLIANCE")
+                    .build());
+        }
+
+// Fires only when FAILED
+        if (newStatus == ComplianceStatus.FAILED) {
+            notificationProducer.send("compliance-events", NotificationEvent.builder()
+                    .recipientEmail("")
+                    .recipientName(reviewerUsername)
+                    .type("COMPLIANCE_CHECK_FAILED")
+                    .subject("Compliance check FAILED for contract #" + record.getContractId())
+                    .message("Compliance record #" + record.getComplianceId()
+                            + " for contract #" + record.getContractId()
+                            + " has FAILED the compliance check. Immediate action required. "
+                            + "Reviewed by: " + reviewerUsername)
+                    .referenceId(String.valueOf(record.getComplianceId()))
+                    .referenceType("COMPLIANCE")
+                    .build());
+        }
+
+        return result;
     }
 
     @Override
