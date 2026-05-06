@@ -22,4 +22,3 @@ public class ServiceRequestDTO {
     @Size(max = 250, message = "Remarks cannot exceed 250 characters")
     private String remarks;
 }
-

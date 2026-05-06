@@ -40,6 +40,7 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         log.info("Creating service record for contract {}", request.getContractId());
         Map<String, Object> contractData = validateContractActive(request.getContractId());
         validateVendorOwnership(contractData);
+        validateServiceDateInWindow(request.getCompletionDate(), contractData);
 
         ServiceRecord record = ServiceRecord.builder()
             .contractId(request.getContractId())
@@ -96,6 +97,13 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         if (service.getStatus() != ServiceStatus.PENDING) {
             throw new BadRequestException("Service details can only be updated when status is PENDING.");
         }
+        if (request.getCompletionDate() != null) {
+            Map<String, Object> contractData = validateContractActive(
+                    request.getContractId() != null ? request.getContractId() : service.getContractId()
+            );
+            validateServiceDateInWindow(request.getCompletionDate(), contractData); // ← add this
+            service.setCompletionDate(request.getCompletionDate());
+        }
         if (request.getContractId() != null) {
             validateContractActive(request.getContractId()); // return value intentionally unused here
             service.setContractId(request.getContractId());
@@ -139,6 +147,20 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
                 " is currently " + status + ".");
         }
         return data;
+    }
+
+    private void validateServiceDateInWindow(java.time.LocalDate completionDate, Map<String, Object> contractData) {
+        if (completionDate == null) return;
+        Object startObj = contractData.get("startDate");
+        Object endObj   = contractData.get("endDate");
+        if (startObj == null || endObj == null) return;
+        java.time.LocalDate contractStart = java.time.LocalDate.parse(startObj.toString());
+        java.time.LocalDate contractEnd   = java.time.LocalDate.parse(endObj.toString());
+        if (completionDate.isBefore(contractStart) || completionDate.isAfter(contractEnd)) {
+            throw new BadRequestException(
+                    "Completion date " + completionDate + " is outside the contract period (" +
+                            contractStart + " to " + contractEnd + ").");
+        }
     }
 
     private void validateVendorOwnership(Map<String, Object> contractData) {
@@ -207,4 +229,3 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
             .createdAt(s.getCreatedAt()).updatedAt(s.getUpdatedAt()).build();
     }
 }
-

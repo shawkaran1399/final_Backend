@@ -150,6 +150,10 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
     private void validateDeliveryDateInWindow(java.time.LocalDate deliveryDate, Map<String, Object> contractData) {
         if (deliveryDate == null) return;
+        // Check if delivery date is in the future
+//        if (deliveryDate.isAfter(java.time.LocalDate.now())) {
+//            throw new BadRequestException("Delivery date cannot be in the future.");
+//        }
         Object startObj = contractData.get("startDate");
         Object endObj   = contractData.get("endDate");
         if (startObj == null || endObj == null) return;
