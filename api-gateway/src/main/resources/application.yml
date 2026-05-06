@@ -198,7 +198,7 @@ eureka:
 
 # JWT
 jwt:
-  secret: BuildLedgerSecretKeyForJWTTokenGenerationMustBe256BitsLong123456789
+  secret: ${JWT_SECRET}
 
 # Springdoc OpenAPI
 springdoc:

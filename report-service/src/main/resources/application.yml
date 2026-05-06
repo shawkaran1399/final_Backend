@@ -11,7 +11,7 @@ spring:
       write-dates-as-timestamps: false
 
 jwt:
-  secret: BuildLedgerSecretKeyForJWTTokenGenerationMustBe256BitsLong123456789
+  secret: ${JWT_SECRET}
 
 eureka:
   client:
