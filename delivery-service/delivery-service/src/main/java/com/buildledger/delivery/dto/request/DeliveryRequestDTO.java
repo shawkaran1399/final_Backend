@@ -13,7 +13,7 @@ public class DeliveryRequestDTO {
     private Long contractId;
 
     @NotNull(message = "Delivery date is required")
-    //@PastOrPresent(message = "Delivery date cannot be in the future")
+    @PastOrPresent(message = "Delivery date cannot be in the future")
     private LocalDate date;
 
     @NotBlank(message = "Item name is required")

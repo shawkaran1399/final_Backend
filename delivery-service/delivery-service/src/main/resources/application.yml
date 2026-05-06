@@ -16,12 +16,8 @@ spring:
     name: delivery-service
   datasource:
     url: jdbc:mysql://localhost:3306/buildledger_delivery?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
-
-   
-
+    username: root
+    password: 12345678
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
@@ -36,7 +32,7 @@ spring:
     default-property-inclusion: non_null
 
 jwt:
-  secret: ${JWT_SECRET}
+  secret: BuildLedgerSecretKeyForJWTTokenGenerationMustBe256BitsLong123456789
 
 eureka:
   client:
