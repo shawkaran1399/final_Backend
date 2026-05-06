@@ -8,8 +8,8 @@ spring:
     name: iam-service
   datasource:
     url: jdbc:mysql://localhost:3306/buildledger_iam?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: root
-    password: swarnendu
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 10
@@ -21,17 +21,13 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
   sql:
-    init:
-      mode: always
-      schema-locations: classpath:schema.sql
-      continue-on-error: false
   jackson:
     serialization:
       write-dates-as-timestamps: false
     default-property-inclusion: non_null
 
 jwt:
-  secret: BuildLedgerSecretKeyForJWTTokenGenerationMustBe256BitsLong123456789
+  secret: ${JWT_SECRET}
   expiration: 86400000
 
 eureka:

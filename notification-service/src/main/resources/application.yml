@@ -8,8 +8,8 @@ spring:
     name: notification-service
   datasource:
     url: jdbc:mysql://localhost:3306/buildledger_notification?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: root
-    password: 11092004
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
@@ -34,7 +34,7 @@ spring:
       write-dates-as-timestamps: false
 
 jwt:
-  secret: BuildLedgerSecretKeyForJWTTokenGenerationMustBe256BitsLong123456789
+  secret: ${JWT_SECRET}
 
 eureka:
   client:

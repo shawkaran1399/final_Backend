@@ -17,11 +17,7 @@ spring:
       globalcors:
         cors-configurations:
           '[/**]':
-            # Wildcard "*" with allowCredentials: true violates the W3C CORS spec and is blocked by browsers.
-            # List your actual frontend origins here. Use allowedOriginPatterns only for non-credentialed requests.
-            allowedOrigins:
-              - "http://localhost:3000"
-              - "http://localhost:5173"
+            allowedOriginPatterns: "*"
             allowedMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
             allowedHeaders: "*"
             allowCredentials: true
@@ -202,7 +198,7 @@ eureka:
 
 # JWT
 jwt:
-  secret: BuildLedgerSecretKeyForJWTTokenGenerationMustBe256BitsLong123456789
+  secret: ${JWT_SECRET}
 
 # Springdoc OpenAPI
 springdoc:

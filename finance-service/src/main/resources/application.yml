@@ -3,13 +3,21 @@ server:
   servlet:
     context-path: /api
 
+# Add this to application.yml of all 5 publisher services
 spring:
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
   application:
     name: finance-service
   datasource:
     url: jdbc:mysql://localhost:3306/buildledger_finance?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: root
-    password: swarnendu
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
@@ -24,7 +32,7 @@ spring:
     default-property-inclusion: non_null
 
 jwt:
-  secret: BuildLedgerSecretKeyForJWTTokenGenerationMustBe256BitsLong123456789
+  secret: ${JWT_SECRET}
 
 eureka:
   client:
