@@ -1,5 +1,6 @@
 package com.buildledger.compliance.service.impl;
-
+import com.buildledger.compliance.event.NotificationEvent;
+import com.buildledger.compliance.event.NotificationProducer;
 import com.buildledger.compliance.dto.request.AuditRequestDTO;
 import com.buildledger.compliance.dto.response.*;
 import com.buildledger.compliance.entity.Audit;
@@ -30,6 +31,7 @@ public class AuditServiceImpl implements AuditService {
 
     private final AuditRepository auditRepository;
     private final IamServiceClient iamServiceClient;
+    private final NotificationProducer notificationProducer;  // ADD THIS
 
     @Override
     public AuditResponseDTO createAudit(AuditRequestDTO request) {
@@ -45,7 +47,20 @@ public class AuditServiceImpl implements AuditService {
             .status(AuditStatus.SCHEDULED)
             .build();
 
-        return mapToResponse(auditRepository.save(audit));
+        AuditResponseDTO result = mapToResponse(auditRepository.save(audit));
+
+// ← NEW: Notify the assigned compliance officer
+        notificationProducer.send("audit-events", NotificationEvent.builder()
+                .recipientEmail((String) officer.getOrDefault("email", ""))
+                .recipientName(audit.getOfficerName())
+                .type("AUDIT_SCHEDULED")
+                .subject("New audit assigned to you")
+                .message("Dear " + audit.getOfficerName() + ", a new audit has been scheduled for you. Scope: " + audit.getScope() + ". Scheduled date: " + audit.getDate())
+                .referenceId(String.valueOf(audit.getAuditId()))
+                .referenceType("AUDIT")
+                .build());
+
+        return result;
     }
 
     @Override
@@ -115,16 +130,9 @@ public class AuditServiceImpl implements AuditService {
     @Override
     public void deleteAudit(Long auditId) {
         Audit audit = findById(auditId);
-        // auditDate is set the moment the audit moves to IN_PROGRESS.
-        // If set, the audit was started and its record must be preserved for regulatory compliance.
-        if (audit.getAuditDate() != null) {
-            throw new BadRequestException(
-                "Audit " + auditId + " was already started and cannot be deleted. " +
-                "Once an audit begins, its record is immutable for regulatory compliance.");
-        }
         if (audit.getStatus() != AuditStatus.SCHEDULED && audit.getStatus() != AuditStatus.CANCELLED) {
             throw new BadRequestException(
-                "Only SCHEDULED or CANCELLED (never-started) audits can be deleted. Current status: " + audit.getStatus());
+                "Only SCHEDULED or CANCELLED audits can be deleted. Current status: " + audit.getStatus());
         }
         auditRepository.delete(audit);
         log.info("Audit deleted: id={}", auditId);

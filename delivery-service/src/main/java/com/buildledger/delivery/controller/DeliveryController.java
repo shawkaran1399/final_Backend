@@ -56,7 +56,6 @@ public class DeliveryController {
     }
 
     @PatchMapping("/{deliveryId}/status")
-    @PreAuthorize("hasRole('VENDOR') or hasRole('PROJECT_MANAGER') or hasRole('ADMIN')")
     @Operation(summary = "Update delivery status",
                description = "Lifecycle: PENDING→MARKED_DELIVERED|DELAYED, MARKED_DELIVERED→ACCEPTED|REJECTED, DELAYED→MARKED_DELIVERED. " +
                              "ACCEPTED/REJECTED require PROJECT_MANAGER or ADMIN. MARKED_DELIVERED/DELAYED require VENDOR or ADMIN.")

@@ -3,7 +3,15 @@ server:
   servlet:
     context-path: /api
 
+# Add this to application.yml of all 5 publisher services
 spring:
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
   application:
     name: delivery-service
   datasource:
@@ -49,12 +57,6 @@ resilience4j:
   circuitbreaker:
     instances:
       contract-service:
-        slidingWindowSize: 10
-        minimumNumberOfCalls: 5
-        failureRateThreshold: 50
-        waitDurationInOpenState: 15s
-        permittedNumberOfCallsInHalfOpenState: 3
-      vendor-service:
         slidingWindowSize: 10
         minimumNumberOfCalls: 5
         failureRateThreshold: 50

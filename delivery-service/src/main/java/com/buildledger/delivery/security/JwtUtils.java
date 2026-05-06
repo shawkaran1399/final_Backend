@@ -21,12 +21,6 @@ public class JwtUtils {
     public String extractRole(String t) {
         return Jwts.parserBuilder().setSigningKey(key()).build().parseClaimsJws(t).getBody().get("role", String.class);
     }
-    public Long extractUserId(String t) {
-        Object id = Jwts.parserBuilder().setSigningKey(key()).build().parseClaimsJws(t).getBody().get("userId");
-        if (id instanceof Integer) return ((Integer) id).longValue();
-        if (id instanceof Long) return (Long) id;
-        return null;
-    }
     private Key key() { return Keys.hmacShaKeyFor(jwtSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
 }
 

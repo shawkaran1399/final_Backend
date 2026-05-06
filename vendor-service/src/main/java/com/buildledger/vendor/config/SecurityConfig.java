@@ -28,25 +28,12 @@ public class SecurityConfig {
         http
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .exceptionHandling(ex -> ex
-                .authenticationEntryPoint((req, res, authEx) -> {
-                    res.setContentType("application/json;charset=UTF-8");
-                    res.setStatus(jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED);
-                    res.getWriter().write(
-                        "{\"success\":false,\"message\":\"Authentication required. Please provide a valid Bearer token.\"}");
-                })
-                .accessDeniedHandler((req, res, accessEx) -> {
-                    res.setContentType("application/json;charset=UTF-8");
-                    res.setStatus(jakarta.servlet.http.HttpServletResponse.SC_FORBIDDEN);
-                    res.getWriter().write(
-                        "{\"success\":false,\"message\":\"Access denied: insufficient permissions.\"}");
-                })
-            )
             .authorizeHttpRequests(auth -> auth
-                // Public: vendor self-registration and document upload (vendor has no token yet)
                 .requestMatchers(HttpMethod.POST, "/vendors/register").permitAll()
+                .requestMatchers(HttpMethod.POST, "/vendors/auth/login").permitAll()
                 .requestMatchers(HttpMethod.POST, "/vendors/*/documents").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/vendors/*/documents/replace").permitAll()
+                .requestMatchers(HttpMethod.GET, "/vendors/**").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/actuator/**").permitAll()
                 .anyRequest().authenticated()
             )

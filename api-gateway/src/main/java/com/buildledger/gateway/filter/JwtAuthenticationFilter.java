@@ -42,6 +42,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     private static final List<String> PUBLIC_PATHS = List.of(
         "/api/auth/login",
         "/api/vendors/register",
+        "/api/vendors/auth/login",           // pending vendor login
         "/api/vendors/*/documents",        // vendor doc upload (POST) – public
         "/api/vendors/*/documents/replace" // vendor doc replace (PUT) – public
     );
@@ -116,6 +117,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         // Login and vendor register are always public
         if (path.equals("/api/auth/login")) return true;
         if (path.equals("/api/vendors/register")) return true;
+        if (path.equals("/api/vendors/auth/login")) return true;
 
         // POST and PUT to vendor documents (upload/replace) are public
         if (path.matches("/api/vendors/\\d+/documents") &&

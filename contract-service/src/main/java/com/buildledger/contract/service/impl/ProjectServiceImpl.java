@@ -1,17 +1,16 @@
 package com.buildledger.contract.service.impl;
-
+import com.buildledger.contract.event.NotificationEvent;
+import com.buildledger.contract.event.NotificationProducer;
 import com.buildledger.contract.dto.request.ProjectRequestDTO;
 import com.buildledger.contract.dto.response.ApiResponseDTO;
 import com.buildledger.contract.dto.response.ProjectResponseDTO;
 import com.buildledger.contract.entity.Project;
-import com.buildledger.contract.enums.ContractStatus;
 import com.buildledger.contract.enums.ProjectStatus;
 import com.buildledger.contract.exception.BadRequestException;
 import com.buildledger.contract.exception.ResourceNotFoundException;
 import com.buildledger.contract.exception.ServiceUnavailableException;
 import com.buildledger.contract.feign.IamServiceClient;
 import com.buildledger.contract.feign.IamServiceFallback;
-import com.buildledger.contract.repository.ContractRepository;
 import com.buildledger.contract.repository.ProjectRepository;
 import com.buildledger.contract.service.ProjectService;
 import feign.FeignException;
@@ -32,8 +31,8 @@ import java.util.stream.Collectors;
 public class ProjectServiceImpl implements ProjectService {
 
     private final ProjectRepository projectRepository;
-    private final ContractRepository contractRepository;
     private final IamServiceClient iamServiceClient;
+    private final NotificationProducer notificationProducer;  // ← ADD THIS
 
     @Override
     public ProjectResponseDTO createProject(ProjectRequestDTO request) {
@@ -56,7 +55,21 @@ public class ProjectServiceImpl implements ProjectService {
             .managerName(managerName)
             .build();
 
-        return mapToResponse(projectRepository.save(project));
+        ProjectResponseDTO result = mapToResponse(projectRepository.save(project));
+
+        notificationProducer.send("contract-events", NotificationEvent.builder()
+                .recipientEmail("")
+                .recipientName(managerName)
+                .type("PROJECT_CREATED")
+                .subject("New project created: " + request.getName())
+                .message("A new project '" + request.getName() + "' has been created at location '"
+                        + request.getLocation() + "' with budget " + request.getBudget()
+                        + ". Start date: " + request.getStartDate() + ", End date: " + request.getEndDate())
+                .referenceId(String.valueOf(result.getProjectId()))
+                .referenceType("PROJECT")
+                .build());
+
+        return result;
     }
 
     @Override
@@ -80,11 +93,6 @@ public class ProjectServiceImpl implements ProjectService {
     @Override
     public ProjectResponseDTO updateProject(Long projectId, ProjectRequestDTO request) {
         Project project = findById(projectId);
-
-        if (project.getStatus() == ProjectStatus.COMPLETED || project.getStatus() == ProjectStatus.CANCELLED) {
-            throw new BadRequestException(
-                "Cannot modify a " + project.getStatus() + " project. Historical records are immutable.");
-        }
 
         if (request.getEndDate() != null && request.getStartDate() != null
                 && request.getEndDate().isBefore(request.getStartDate())) {
@@ -124,20 +132,25 @@ public class ProjectServiceImpl implements ProjectService {
         }
 
         project.setStatus(newStatus);
-        return mapToResponse(projectRepository.save(project));
+        ProjectResponseDTO result = mapToResponse(projectRepository.save(project));
+
+        notificationProducer.send("contract-events", NotificationEvent.builder()
+                .recipientEmail("")
+                .recipientName(project.getManagerName())
+                .type("PROJECT_STATUS_CHANGED")
+                .subject("Project status updated: " + project.getName())
+                .message("Project '" + project.getName() + "' status has changed from "
+                        + current + " to " + newStatus + ".")
+                .referenceId(String.valueOf(project.getProjectId()))
+                .referenceType("PROJECT")
+                .build());
+
+        return result;
     }
 
     @Override
     public void deleteProject(Long projectId) {
-        Project project = findById(projectId);
-        boolean hasNonTerminalContracts = contractRepository.findByProjectId(projectId).stream()
-            .anyMatch(c -> c.getStatus() == ContractStatus.DRAFT || c.getStatus() == ContractStatus.ACTIVE);
-        if (hasNonTerminalContracts) {
-            throw new BadRequestException(
-                "Cannot delete project '" + project.getName() +
-                "' because it has active or draft contracts. Terminate or complete all contracts first.");
-        }
-        projectRepository.delete(project);
+        projectRepository.delete(findById(projectId));
         log.info("Project deleted: id={}", projectId);
     }
 

@@ -1,5 +1,6 @@
 package com.buildledger.finance.service.impl;
-
+import com.buildledger.finance.event.NotificationEvent;
+import com.buildledger.finance.event.NotificationProducer;
 import com.buildledger.finance.dto.request.InvoiceRequestDTO;
 import com.buildledger.finance.dto.request.PaymentRequestDTO;
 import com.buildledger.finance.dto.response.*;
@@ -11,7 +12,6 @@ import com.buildledger.finance.feign.ContractServiceClient;
 import com.buildledger.finance.feign.ContractServiceFallback;
 import com.buildledger.finance.repository.InvoiceRepository;
 import com.buildledger.finance.repository.PaymentRepository;
-import com.buildledger.finance.exception.BadRequestException;
 import com.buildledger.finance.exception.ResourceNotFoundException;
 import com.buildledger.finance.exception.ServiceUnavailableException;
 import feign.FeignException;
@@ -30,27 +30,12 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
     private final ContractServiceClient contractServiceClient;
-
+    private final NotificationProducer notificationProducer;  // ADD THIS
     // ── Invoice ───────────────────────────────────────────────────────────────
 
     public InvoiceResponseDTO submitInvoice(InvoiceRequestDTO request) {
         log.info("Submitting invoice for contract {}", request.getContractId());
-        Map<String, Object> contractData = validateContractActive(request.getContractId());
-
-        // Enforce invoice amount cap against contract value
-        Object contractValueObj = contractData.get("value");
-        if (contractValueObj != null) {
-            java.math.BigDecimal contractValue = new java.math.BigDecimal(contractValueObj.toString());
-            java.math.BigDecimal alreadyInvoiced = invoiceRepository.sumAmountByContractIdAndStatuses(
-                request.getContractId(),
-                java.util.List.of(InvoiceStatus.APPROVED, InvoiceStatus.PAID, InvoiceStatus.UNDER_REVIEW));
-            if (alreadyInvoiced.add(request.getAmount()).compareTo(contractValue) > 0) {
-                throw new BadRequestException(
-                    "Invoice amount would exceed contract value. Contract value: " + contractValue +
-                    ", already invoiced: " + alreadyInvoiced +
-                    ", requested: " + request.getAmount() + ".");
-            }
-        }
+        Map<String, Object> contractData = validateContractExists(request.getContractId());
 
         Invoice invoice = Invoice.builder()
             .contractId(request.getContractId())
@@ -85,29 +70,52 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
     public InvoiceResponseDTO approveInvoice(Long invoiceId) {
         Invoice invoice = findInvoiceById(invoiceId);
         if (invoice.getStatus() != InvoiceStatus.UNDER_REVIEW) {
-            throw new BadRequestException(
-                "Invoice can only be approved when UNDER_REVIEW. Current: " + invoice.getStatus());
+            throw new RuntimeException("Invoice can only be approved when UNDER_REVIEW. Current: " + invoice.getStatus());
         }
         invoice.setStatus(InvoiceStatus.APPROVED);
-        return mapInvoiceToResponse(invoiceRepository.save(invoice));
+        InvoiceResponseDTO result = mapInvoiceToResponse(invoiceRepository.save(invoice));
+
+        // ← NEW
+        notificationProducer.send("invoice-events", NotificationEvent.builder()
+                .recipientEmail("")
+                .recipientName(invoice.getVendorName())
+                .type("INVOICE_APPROVED")
+                .subject("Your invoice has been approved")
+                .message("Dear " + invoice.getVendorName() + ", your invoice #" + invoice.getInvoiceId() + " for amount " + invoice.getAmount() + " has been APPROVED. Payment will be processed soon.")
+                .referenceId(String.valueOf(invoice.getInvoiceId()))
+                .referenceType("INVOICE")
+                .build());
+
+        return result;
     }
 
     public InvoiceResponseDTO rejectInvoice(Long invoiceId, String reason) {
         Invoice invoice = findInvoiceById(invoiceId);
         if (invoice.getStatus() != InvoiceStatus.UNDER_REVIEW) {
-            throw new BadRequestException(
-                "Invoice can only be rejected when UNDER_REVIEW. Current: " + invoice.getStatus());
+            throw new RuntimeException("Invoice can only be rejected when UNDER_REVIEW. Current: " + invoice.getStatus());
         }
         invoice.setStatus(InvoiceStatus.REJECTED);
         invoice.setRejectionReason(reason);
-        return mapInvoiceToResponse(invoiceRepository.save(invoice));
+        InvoiceResponseDTO result = mapInvoiceToResponse(invoiceRepository.save(invoice));
+
+        // ← NEW
+        notificationProducer.send("invoice-events", NotificationEvent.builder()
+                .recipientEmail("")
+                .recipientName(invoice.getVendorName())
+                .type("INVOICE_REJECTED")
+                .subject("Your invoice was rejected")
+                .message("Dear " + invoice.getVendorName() + ", your invoice #" + invoice.getInvoiceId() + " has been REJECTED. Reason: " + reason)
+                .referenceId(String.valueOf(invoice.getInvoiceId()))
+                .referenceType("INVOICE")
+                .build());
+
+        return result;
     }
 
     public void deleteInvoice(Long invoiceId) {
         Invoice invoice = findInvoiceById(invoiceId);
-        if (invoice.getStatus() != InvoiceStatus.UNDER_REVIEW && invoice.getStatus() != InvoiceStatus.REJECTED) {
-            throw new BadRequestException(
-                "Only UNDER_REVIEW or REJECTED invoices can be deleted. Current status: " + invoice.getStatus());
+        if (invoice.getStatus() == InvoiceStatus.PAID) {
+            throw new RuntimeException("Cannot delete a PAID invoice.");
         }
         invoiceRepository.delete(invoice);
     }
@@ -119,13 +127,8 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         Invoice invoice = findInvoiceById(request.getInvoiceId());
 
         if (invoice.getStatus() != InvoiceStatus.APPROVED) {
-            throw new BadRequestException(
+            throw new RuntimeException(
                 "Payment can only be processed for APPROVED invoices. Current status: " + invoice.getStatus());
-        }
-        if (request.getAmount().compareTo(invoice.getAmount()) > 0) {
-            throw new BadRequestException(
-                "Payment amount " + request.getAmount() +
-                " exceeds invoice amount " + invoice.getAmount() + ". Overpayment is not allowed.");
         }
 
         Payment payment = Payment.builder()
@@ -156,7 +159,7 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         PaymentStatus current = payment.getStatus();
 
         if (!current.canTransitionTo(newStatus)) {
-            throw new BadRequestException(
+            throw new RuntimeException(
                 "Invalid payment status transition from " + current + " to " + newStatus +
                 ". Lifecycle: PENDING→PROCESSING|FAILED, PROCESSING→COMPLETED|FAILED.");
         }
@@ -164,11 +167,23 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         payment.setStatus(newStatus);
 
         // When payment COMPLETED → mark invoice as PAID
+        // When payment COMPLETED → mark invoice as PAID
         if (newStatus == PaymentStatus.COMPLETED) {
             Invoice invoice = payment.getInvoice();
             invoice.setStatus(InvoiceStatus.PAID);
             invoiceRepository.save(invoice);
             log.info("Invoice {} marked PAID after payment {} completed", invoice.getInvoiceId(), paymentId);
+
+            // ← NEW
+            notificationProducer.send("payment-events", NotificationEvent.builder()
+                    .recipientEmail("")
+                    .recipientName(invoice.getVendorName())
+                    .type("PAYMENT_COMPLETED")
+                    .subject("Payment completed — invoice paid")
+                    .message("Dear " + invoice.getVendorName() + ", payment of " + payment.getAmount() + " for invoice #" + invoice.getInvoiceId() + " has been COMPLETED. Transaction ref: " + payment.getTransactionReference())
+                    .referenceId(String.valueOf(payment.getPaymentId()))
+                    .referenceType("PAYMENT")
+                    .build());
         }
 
         return mapPaymentToResponse(paymentRepository.save(payment));
@@ -176,7 +191,7 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private Map<String, Object> validateContractActive(Long contractId) {
+    private Map<String, Object> validateContractExists(Long contractId) {
         ApiResponseDTO<Map<String, Object>> response;
         try {
             response = contractServiceClient.getContractById(contractId);
@@ -191,14 +206,7 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         if (!response.isSuccess() || response.getData() == null) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
         }
-        Map<String, Object> data = response.getData();
-        String status = (String) data.get("status");
-        if (!"ACTIVE".equals(status)) {
-            throw new BadRequestException(
-                "Invoices can only be submitted against ACTIVE contracts. Contract " + contractId +
-                " is currently " + status + ".");
-        }
-        return data;
+        return response.getData();
     }
 
     private Invoice findInvoiceById(Long id) {

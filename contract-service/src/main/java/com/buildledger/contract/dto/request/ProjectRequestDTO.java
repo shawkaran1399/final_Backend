@@ -27,7 +27,7 @@ public class ProjectRequestDTO {
     private LocalDate startDate;
 
     @NotNull(message = "End date is required")
-    @FutureOrPresent(message = "End date cannot be in the past")
+    @Future(message = "End date must be in the future")
     private LocalDate endDate;
 
     @NotNull(message = "Manager ID is required")

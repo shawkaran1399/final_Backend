@@ -18,7 +18,7 @@ public class CreateVendorRequestDTO {
     @Size(max = 100)
     private String email;
 
-    @Pattern(regexp = "^(\\+?[0-9\\s\\-().]{7,20})?$", message = "Phone must be a valid national or international number")
+    @Pattern(regexp = "^[6-9]\\d{9}$", message = "Phone must be a valid 10-digit Indian mobile number")
     private String phone;
 
     @NotBlank(message = "Category is required")

@@ -28,9 +28,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String role = req.getHeader("X-User-Role");
             String username = req.getHeader("X-Username");
             if (StringUtils.hasText(role) && StringUtils.hasText(username)) {
-                String userIdHeader = req.getHeader("X-User-Id");
-                Long userId = StringUtils.hasText(userIdHeader) ? Long.parseLong(userIdHeader) : null;
-                var auth = new UsernamePasswordAuthenticationToken(username, userId,
+                var auth = new UsernamePasswordAuthenticationToken(username, null,
                     List.of(new SimpleGrantedAuthority("ROLE_" + role)));
                 auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(req));
                 SecurityContextHolder.getContext().setAuthentication(auth);
@@ -41,8 +39,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     if (jwtUtils.validateToken(jwt)) {
                         String u = jwtUtils.extractUsername(jwt), r = jwtUtils.extractRole(jwt);
                         if (StringUtils.hasText(r)) {
-                            Long userId = jwtUtils.extractUserId(jwt);
-                            var auth = new UsernamePasswordAuthenticationToken(u, userId,
+                            var auth = new UsernamePasswordAuthenticationToken(u, null,
                                 List.of(new SimpleGrantedAuthority("ROLE_" + r)));
                             auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(req));
                             SecurityContextHolder.getContext().setAuthentication(auth);
