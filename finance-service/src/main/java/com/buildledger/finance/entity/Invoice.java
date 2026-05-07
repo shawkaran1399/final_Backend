@@ -28,6 +28,9 @@ public class Invoice {
     @Column(name = "vendor_name", length = 100)
     private String vendorName;
 
+    @Column(name = "vendor_username", length = 150)
+    private String vendorUsername;   // ← ADD
+
     @Column(name = "amount", nullable = false, precision = 18, scale = 2)
     private BigDecimal amount;
 

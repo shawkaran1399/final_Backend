@@ -385,6 +385,7 @@ public class ContractServiceImpl implements ContractService {
     private ContractResponseDTO mapToResponse(Contract c) {
         return ContractResponseDTO.builder()
                 .contractId(c.getContractId()).vendorId(c.getVendorId()).vendorName(c.getVendorName())
+                .vendorUsername(c.getVendorUsername())   // ← ADD THIS
                 .projectId(c.getProjectId()).projectName(c.getProjectName())
                 .startDate(c.getStartDate()).endDate(c.getEndDate()).value(c.getValue())
                 .status(c.getStatus()).description(c.getDescription())

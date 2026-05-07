@@ -11,6 +11,7 @@ public class ContractResponseDTO {
     private Long contractId;
     private Long vendorId;
     private String vendorName;
+    private String vendorUsername;   // ← ADD THIS
     private Long projectId;
     private String projectName;
     private LocalDate startDate;
@@ -21,4 +22,3 @@ public class ContractResponseDTO {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
-
