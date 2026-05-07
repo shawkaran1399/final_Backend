@@ -20,6 +20,8 @@ public class ReportController {
 
     private final ReportService reportService;
 
+    // ─── Existing raw-data report endpoints ──────────────────────────────────
+
     @GetMapping("/projects")
     @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER')")
     @Operation(summary = "Generate project report [ADMIN / PROJECT_MANAGER]")
@@ -47,5 +49,55 @@ public class ReportController {
     public ResponseEntity<Map<String, Object>> getDeliveryReport() {
         return ResponseEntity.ok(reportService.generateDeliveryReport());
     }
-}
 
+    // ─── Page-level summary endpoints ────────────────────────────────────────
+
+    @GetMapping("/dashboard")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER') or hasRole('FINANCE_OFFICER')")
+    @Operation(summary = "Get dashboard KPI summary [ADMIN / PROJECT_MANAGER / FINANCE_OFFICER]")
+    public ResponseEntity<Map<String, Object>> getDashboardSummary() {
+        return ResponseEntity.ok(reportService.generateDashboardSummary());
+    }
+
+    @GetMapping("/contracts/summary")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER')")
+    @Operation(summary = "Get contract page summary [ADMIN / PROJECT_MANAGER]")
+    public ResponseEntity<Map<String, Object>> getContractPageSummary() {
+        return ResponseEntity.ok(reportService.generateContractPageSummary());
+    }
+
+    @GetMapping("/invoices/summary")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_OFFICER')")
+    @Operation(summary = "Get invoice page summary [ADMIN / FINANCE_OFFICER]")
+    public ResponseEntity<Map<String, Object>> getInvoicePageSummary() {
+        return ResponseEntity.ok(reportService.generateInvoicePageSummary());
+    }
+
+    @GetMapping("/vendors/summary")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Get vendor page summary [ADMIN]")
+    public ResponseEntity<Map<String, Object>> getVendorPageSummary() {
+        return ResponseEntity.ok(reportService.generateVendorPageSummary());
+    }
+
+    @GetMapping("/projects/summary")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER')")
+    @Operation(summary = "Get project page summary [ADMIN / PROJECT_MANAGER]")
+    public ResponseEntity<Map<String, Object>> getProjectPageSummary() {
+        return ResponseEntity.ok(reportService.generateProjectPageSummary());
+    }
+
+    @GetMapping("/deliveries/summary")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER')")
+    @Operation(summary = "Get delivery page summary [ADMIN / PROJECT_MANAGER]")
+    public ResponseEntity<Map<String, Object>> getDeliveryPageSummary() {
+        return ResponseEntity.ok(reportService.generateDeliveryPageSummary());
+    }
+
+    @GetMapping("/compliance/summary")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMPLIANCE_OFFICER')")
+    @Operation(summary = "Get compliance page summary [ADMIN / COMPLIANCE_OFFICER]")
+    public ResponseEntity<Map<String, Object>> getCompliancePageSummary() {
+        return ResponseEntity.ok(reportService.generateCompliancePageSummary());
+    }
+}
