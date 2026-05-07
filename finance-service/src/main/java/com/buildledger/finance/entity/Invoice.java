@@ -53,7 +53,8 @@ public class Invoice {
 
     @CreatedDate @Column(name = "created_at", updatable = false) private LocalDateTime createdAt;
     @LastModifiedDate @Column(name = "updated_at") private LocalDateTime updatedAt;
-
+    @Column(name = "last_notified_date")
+    private LocalDate lastNotifiedDate;
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<Payment> payments;
 }

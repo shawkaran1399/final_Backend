@@ -10,5 +10,6 @@ import java.util.List;
 public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     List<Invoice> findByContractId(Long contractId);
     List<Invoice> findByStatus(InvoiceStatus status);
+    List<Invoice> findByStatusInAndDueDateNotNull(List<InvoiceStatus> statuses);
 }
 

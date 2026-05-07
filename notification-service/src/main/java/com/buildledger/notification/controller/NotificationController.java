@@ -35,6 +35,13 @@ public class NotificationController {
         return ResponseEntity.ok(notificationService.getPending());
     }
 
+//    @GetMapping("/test")
+//    @PreAuthorize("isAuthenticated()")
+//    @Operation(summary = "Test endpoint")
+//    public ResponseEntity<List<Notification>> test() {
+//        return ResponseEntity.ok(notificationService.getAll());
+//    }
+
     @GetMapping("/my")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get my own notifications [All roles]")
