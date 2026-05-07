@@ -1,4 +1,5 @@
 package com.buildledger.finance.service.impl;
+
 import com.buildledger.finance.event.NotificationEvent;
 import com.buildledger.finance.event.NotificationProducer;
 import com.buildledger.finance.dto.request.InvoiceRequestDTO;
@@ -30,7 +31,8 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
     private final ContractServiceClient contractServiceClient;
-    private final NotificationProducer notificationProducer;  // ADD THIS
+    private final NotificationProducer notificationProducer;
+
     // ── Invoice ───────────────────────────────────────────────────────────────
 
     public InvoiceResponseDTO submitInvoice(InvoiceRequestDTO request) {
@@ -38,13 +40,27 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         Map<String, Object> contractData = validateContractExists(request.getContractId());
 
         Invoice invoice = Invoice.builder()
-            .contractId(request.getContractId())
-            .vendorName((String) contractData.getOrDefault("vendorName", "N/A"))
-            .amount(request.getAmount()).date(request.getDate())
-            .dueDate(request.getDueDate()).description(request.getDescription())
-            .status(InvoiceStatus.UNDER_REVIEW).build();
+                .contractId(request.getContractId())
+                .vendorName((String) contractData.getOrDefault("vendorName", "N/A"))
+                .amount(request.getAmount()).date(request.getDate())
+                .dueDate(request.getDueDate()).description(request.getDescription())
+                .status(InvoiceStatus.UNDER_REVIEW).build();
 
-        return mapInvoiceToResponse(invoiceRepository.save(invoice));
+        InvoiceResponseDTO result = mapInvoiceToResponse(invoiceRepository.save(invoice));
+
+        notificationProducer.send("invoice-events", NotificationEvent.builder()
+                .recipientEmail("")
+                .recipientName(invoice.getVendorName())
+                .type("INVOICE_SUBMITTED")
+                .subject("Invoice submitted for contract #" + request.getContractId())
+                .message("Dear " + invoice.getVendorName() + ", your invoice #" + result.getInvoiceId()
+                        + " for amount " + request.getAmount()
+                        + " has been submitted successfully and is now UNDER REVIEW.")
+                .referenceId(String.valueOf(result.getInvoiceId()))
+                .referenceType("INVOICE")
+                .build());
+
+        return result;
     }
 
     @Transactional(readOnly = true)
@@ -75,13 +91,14 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         invoice.setStatus(InvoiceStatus.APPROVED);
         InvoiceResponseDTO result = mapInvoiceToResponse(invoiceRepository.save(invoice));
 
-        // ← NEW
         notificationProducer.send("invoice-events", NotificationEvent.builder()
                 .recipientEmail("")
                 .recipientName(invoice.getVendorName())
                 .type("INVOICE_APPROVED")
                 .subject("Your invoice has been approved")
-                .message("Dear " + invoice.getVendorName() + ", your invoice #" + invoice.getInvoiceId() + " for amount " + invoice.getAmount() + " has been APPROVED. Payment will be processed soon.")
+                .message("Dear " + invoice.getVendorName() + ", your invoice #" + invoice.getInvoiceId()
+                        + " for amount " + invoice.getAmount()
+                        + " has been APPROVED. Payment will be processed soon.")
                 .referenceId(String.valueOf(invoice.getInvoiceId()))
                 .referenceType("INVOICE")
                 .build());
@@ -98,13 +115,13 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         invoice.setRejectionReason(reason);
         InvoiceResponseDTO result = mapInvoiceToResponse(invoiceRepository.save(invoice));
 
-        // ← NEW
         notificationProducer.send("invoice-events", NotificationEvent.builder()
                 .recipientEmail("")
                 .recipientName(invoice.getVendorName())
                 .type("INVOICE_REJECTED")
                 .subject("Your invoice was rejected")
-                .message("Dear " + invoice.getVendorName() + ", your invoice #" + invoice.getInvoiceId() + " has been REJECTED. Reason: " + reason)
+                .message("Dear " + invoice.getVendorName() + ", your invoice #" + invoice.getInvoiceId()
+                        + " has been REJECTED. Reason: " + reason)
                 .referenceId(String.valueOf(invoice.getInvoiceId()))
                 .referenceType("INVOICE")
                 .build());
@@ -118,6 +135,17 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
             throw new RuntimeException("Cannot delete a PAID invoice.");
         }
         invoiceRepository.delete(invoice);
+
+        notificationProducer.send("invoice-events", NotificationEvent.builder()
+                .recipientEmail("")
+                .recipientName(invoice.getVendorName())
+                .type("INVOICE_DELETED")
+                .subject("Invoice #" + invoiceId + " has been deleted")
+                .message("Invoice #" + invoiceId + " for contract #" + invoice.getContractId()
+                        + " has been permanently deleted.")
+                .referenceId(String.valueOf(invoiceId))
+                .referenceType("INVOICE")
+                .build());
     }
 
     // ── Payment ───────────────────────────────────────────────────────────────
@@ -128,15 +156,30 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
 
         if (invoice.getStatus() != InvoiceStatus.APPROVED) {
             throw new RuntimeException(
-                "Payment can only be processed for APPROVED invoices. Current status: " + invoice.getStatus());
+                    "Payment can only be processed for APPROVED invoices. Current status: " + invoice.getStatus());
         }
 
         Payment payment = Payment.builder()
-            .invoice(invoice).amount(request.getAmount()).date(request.getDate())
-            .method(request.getMethod()).status(PaymentStatus.PENDING)
-            .transactionReference(request.getTransactionReference()).remarks(request.getRemarks()).build();
+                .invoice(invoice).amount(request.getAmount()).date(request.getDate())
+                .method(request.getMethod()).status(PaymentStatus.PENDING)
+                .transactionReference(request.getTransactionReference()).remarks(request.getRemarks()).build();
 
-        return mapPaymentToResponse(paymentRepository.save(payment));
+        PaymentResponseDTO result = mapPaymentToResponse(paymentRepository.save(payment));
+
+        notificationProducer.send("payment-events", NotificationEvent.builder()
+                .recipientEmail("")
+                .recipientName(invoice.getVendorName())
+                .type("PAYMENT_INITIATED")
+                .subject("Payment initiated for invoice #" + request.getInvoiceId())
+                .message("Dear " + invoice.getVendorName() + ", a payment of " + request.getAmount()
+                        + " has been initiated for invoice #" + request.getInvoiceId()
+                        + ". Payment method: " + request.getMethod()
+                        + ". Transaction ref: " + request.getTransactionReference())
+                .referenceId(String.valueOf(result.getPaymentId()))
+                .referenceType("PAYMENT")
+                .build());
+
+        return result;
     }
 
     @Transactional(readOnly = true)
@@ -160,13 +203,42 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
 
         if (!current.canTransitionTo(newStatus)) {
             throw new RuntimeException(
-                "Invalid payment status transition from " + current + " to " + newStatus +
-                ". Lifecycle: PENDING→PROCESSING|FAILED, PROCESSING→COMPLETED|FAILED.");
+                    "Invalid payment status transition from " + current + " to " + newStatus +
+                            ". Lifecycle: PENDING→PROCESSING|FAILED, PROCESSING→COMPLETED|FAILED.");
         }
 
         payment.setStatus(newStatus);
 
-        // When payment COMPLETED → mark invoice as PAID
+        if (newStatus == PaymentStatus.PROCESSING) {
+            notificationProducer.send("payment-events", NotificationEvent.builder()
+                    .recipientEmail("")
+                    .recipientName(payment.getInvoice().getVendorName())
+                    .type("PAYMENT_PROCESSING")
+                    .subject("Payment for invoice #" + payment.getInvoice().getInvoiceId() + " is processing")
+                    .message("Dear " + payment.getInvoice().getVendorName() + ", your payment of "
+                            + payment.getAmount()
+                            + " for invoice #" + payment.getInvoice().getInvoiceId()
+                            + " is now being PROCESSED.")
+                    .referenceId(String.valueOf(paymentId))
+                    .referenceType("PAYMENT")
+                    .build());
+        }
+
+        if (newStatus == PaymentStatus.FAILED) {
+            notificationProducer.send("payment-events", NotificationEvent.builder()
+                    .recipientEmail("")
+                    .recipientName(payment.getInvoice().getVendorName())
+                    .type("PAYMENT_FAILED")
+                    .subject("Payment FAILED for invoice #" + payment.getInvoice().getInvoiceId())
+                    .message("Dear " + payment.getInvoice().getVendorName() + ", your payment of "
+                            + payment.getAmount()
+                            + " for invoice #" + payment.getInvoice().getInvoiceId()
+                            + " has FAILED. Please contact support.")
+                    .referenceId(String.valueOf(paymentId))
+                    .referenceType("PAYMENT")
+                    .build());
+        }
+
         // When payment COMPLETED → mark invoice as PAID
         if (newStatus == PaymentStatus.COMPLETED) {
             Invoice invoice = payment.getInvoice();
@@ -174,15 +246,17 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
             invoiceRepository.save(invoice);
             log.info("Invoice {} marked PAID after payment {} completed", invoice.getInvoiceId(), paymentId);
 
-            // ← NEW
-            notificationProducer.send("payment-events", NotificationEvent.builder()
+            notificationProducer.send("invoice-events", NotificationEvent.builder()
                     .recipientEmail("")
                     .recipientName(invoice.getVendorName())
-                    .type("PAYMENT_COMPLETED")
-                    .subject("Payment completed — invoice paid")
-                    .message("Dear " + invoice.getVendorName() + ", payment of " + payment.getAmount() + " for invoice #" + invoice.getInvoiceId() + " has been COMPLETED. Transaction ref: " + payment.getTransactionReference())
-                    .referenceId(String.valueOf(payment.getPaymentId()))
-                    .referenceType("PAYMENT")
+                    .type("INVOICE_PAID")
+                    .subject("Invoice #" + invoice.getInvoiceId() + " has been paid")
+                    .message("Dear " + invoice.getVendorName() + ", invoice #" + invoice.getInvoiceId()
+                            + " for amount " + invoice.getAmount()
+                            + " has been marked as PAID. Transaction reference: "
+                            + payment.getTransactionReference())
+                    .referenceId(String.valueOf(invoice.getInvoiceId()))
+                    .referenceType("INVOICE")
                     .build());
         }
 
@@ -211,28 +285,27 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
 
     private Invoice findInvoiceById(Long id) {
         return invoiceRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Invoice", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Invoice", "id", id));
     }
 
     private Payment findPaymentById(Long id) {
         return paymentRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Payment", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Payment", "id", id));
     }
 
     private InvoiceResponseDTO mapInvoiceToResponse(Invoice i) {
         return InvoiceResponseDTO.builder()
-            .invoiceId(i.getInvoiceId()).contractId(i.getContractId()).vendorName(i.getVendorName())
-            .amount(i.getAmount()).date(i.getDate()).dueDate(i.getDueDate()).description(i.getDescription())
-            .status(i.getStatus()).rejectionReason(i.getRejectionReason())
-            .createdAt(i.getCreatedAt()).updatedAt(i.getUpdatedAt()).build();
+                .invoiceId(i.getInvoiceId()).contractId(i.getContractId()).vendorName(i.getVendorName())
+                .amount(i.getAmount()).date(i.getDate()).dueDate(i.getDueDate()).description(i.getDescription())
+                .status(i.getStatus()).rejectionReason(i.getRejectionReason())
+                .createdAt(i.getCreatedAt()).updatedAt(i.getUpdatedAt()).build();
     }
 
     private PaymentResponseDTO mapPaymentToResponse(Payment p) {
         return PaymentResponseDTO.builder()
-            .paymentId(p.getPaymentId()).invoiceId(p.getInvoice().getInvoiceId())
-            .amount(p.getAmount()).date(p.getDate()).method(p.getMethod()).status(p.getStatus())
-            .transactionReference(p.getTransactionReference()).remarks(p.getRemarks())
-            .createdAt(p.getCreatedAt()).updatedAt(p.getUpdatedAt()).build();
+                .paymentId(p.getPaymentId()).invoiceId(p.getInvoice().getInvoiceId())
+                .amount(p.getAmount()).date(p.getDate()).method(p.getMethod()).status(p.getStatus())
+                .transactionReference(p.getTransactionReference()).remarks(p.getRemarks())
+                .createdAt(p.getCreatedAt()).updatedAt(p.getUpdatedAt()).build();
     }
 }
-

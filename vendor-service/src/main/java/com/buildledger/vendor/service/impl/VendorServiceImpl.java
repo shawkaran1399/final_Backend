@@ -81,7 +81,7 @@ public class VendorServiceImpl implements VendorService {
         VendorResponseDTO result = mapToResponse(vendorRepository.save(vendor));
 
         notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(request.getEmail())
+                .recipientEmail(request.getUsername())
                 .recipientName(request.getName())
                 .type("VENDOR_REGISTERED")
                 .subject("Welcome to BuildLedger — Registration Received")
@@ -138,7 +138,7 @@ public class VendorServiceImpl implements VendorService {
         VendorResponseDTO result = mapToResponse(vendorRepository.save(vendor));
 
         notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getEmail())
+                .recipientEmail(vendor.getUsername())
                 .recipientName(vendor.getName())
                 .type("VENDOR_PROFILE_UPDATED")
                 .subject("Your vendor profile has been updated")
@@ -167,7 +167,7 @@ public class VendorServiceImpl implements VendorService {
         log.info("Vendor deleted: id={}, status={}", vendorId, vendor.getStatus());
 
         notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getEmail())
+                .recipientEmail(vendor.getUsername())
                 .recipientName(vendor.getName())
                 .type("VENDOR_DELETED")
                 .subject("Your vendor account has been deleted")
@@ -238,7 +238,7 @@ public class VendorServiceImpl implements VendorService {
         log.info("Document saved: id={}", saved.getDocumentId());
 
         notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getEmail())
+                .recipientEmail(vendor.getUsername())
                 .recipientName(vendor.getName())
                 .type("VENDOR_DOCUMENT_PENDING")
                 .subject("Document uploaded — pending review")
@@ -314,7 +314,7 @@ public class VendorServiceImpl implements VendorService {
         VendorDocumentResponseDTO result = mapDocumentToResponse(vendorDocumentRepository.save(existing));
 
         notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getEmail())
+                .recipientEmail(vendor.getUsername())
                 .recipientName(vendor.getName())
                 .type("VENDOR_DOCUMENT_REPLACED")
                 .subject("Document replaced — pending review")
@@ -351,7 +351,7 @@ public class VendorServiceImpl implements VendorService {
 
         if (status == VerificationStatus.APPROVED) {
             notificationProducer.send("vendor-events", NotificationEvent.builder()
-                    .recipientEmail(document.getVendor().getEmail())
+                    .recipientEmail(document.getVendor().getUsername())
                     .recipientName(document.getVendor().getName())
                     .type("VENDOR_DOCUMENT_APPROVED")
                     .subject("Your document has been approved")
@@ -365,7 +365,7 @@ public class VendorServiceImpl implements VendorService {
 
         if (status == VerificationStatus.REJECTED) {
             notificationProducer.send("vendor-events", NotificationEvent.builder()
-                    .recipientEmail(document.getVendor().getEmail())
+                    .recipientEmail(document.getVendor().getUsername())
                     .recipientName(document.getVendor().getName())
                     .type("VENDOR_DOCUMENT_REJECTED")
                     .subject("Your document has been rejected")
@@ -395,7 +395,7 @@ public class VendorServiceImpl implements VendorService {
                 createVendorUserAccount(vendor);
 
                 notificationProducer.send("vendor-events", NotificationEvent.builder()
-                        .recipientEmail(vendor.getEmail())
+                        .recipientEmail(vendor.getUsername())
                         .recipientName(vendor.getName())
                         .type("VENDOR_ACTIVATED")
                         .subject("Your vendor account is now ACTIVE!")
@@ -412,7 +412,7 @@ public class VendorServiceImpl implements VendorService {
                 log.info("Vendor {} SUSPENDED due to rejected document", vendor.getVendorId());
 
                 notificationProducer.send("vendor-events", NotificationEvent.builder()
-                        .recipientEmail(vendor.getEmail())
+                        .recipientEmail(vendor.getUsername())
                         .recipientName(vendor.getName())
                         .type("VENDOR_SUSPENDED")
                         .subject("Your vendor account has been suspended")

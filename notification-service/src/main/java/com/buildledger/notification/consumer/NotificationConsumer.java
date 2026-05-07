@@ -30,7 +30,8 @@ public class NotificationConsumer {
             "payment-events",
             "delivery-events",
             "compliance-events",
-            "audit-events"
+            "audit-events",
+                "iam-events"
         },
         groupId = "${spring.kafka.consumer.group-id}",
         containerFactory = "kafkaListenerContainerFactory"
