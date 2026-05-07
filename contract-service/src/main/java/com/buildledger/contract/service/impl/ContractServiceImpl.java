@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -128,7 +129,7 @@ public class ContractServiceImpl implements ContractService {
         if (!current.canTransitionTo(newStatus)) {
             throw new BadRequestException(
                     "Invalid status transition from " + current + " to " + newStatus +
-                            ". Allowed: DRAFT→ACTIVE, ACTIVE→COMPLETED|TERMINATED|EXPIRED.");
+                            ". Allowed: DRAFT→PENDING, PENDING→ACTIVE|REJECTED, ACTIVE→COMPLETED|TERMINATED|EXPIRED.");
         }
         contract.setStatus(newStatus);
         ContractResponseDTO result = mapToResponse(contractRepository.save(contract));
@@ -169,6 +170,50 @@ public class ContractServiceImpl implements ContractService {
         return result;
     }
 
+    public ContractResponseDTO vendorRespondToContract(Long contractId, String action,
+                                                       String remarks, Long requestVendorId) {
+        Contract contract = findById(contractId);
+
+        if (contract.getStatus() != ContractStatus.PENDING) {
+            throw new BadRequestException(
+                "Vendor can only respond to contracts in PENDING status. Current status: " + contract.getStatus());
+        }
+        if (!Objects.equals(contract.getVendorId(), requestVendorId)) {
+            throw new BadRequestException(
+                "You are not the vendor assigned to contract #" + contractId +
+                ". Assigned vendor: #" + contract.getVendorId() + ". Access denied.");
+        }
+
+        boolean isAccept = action.equalsIgnoreCase("ACCEPT");
+        if (!isAccept) {
+            if (remarks == null || remarks.isBlank()) {
+                throw new BadRequestException("Remarks are required when rejecting a contract.");
+            }
+            contract.setVendorRemarks(remarks);
+        }
+        contract.setStatus(isAccept ? ContractStatus.ACTIVE : ContractStatus.REJECTED);
+
+        ContractResponseDTO result = mapToResponse(contractRepository.save(contract));
+
+        notificationProducer.send("contract-events", NotificationEvent.builder()
+                .recipientEmail("")
+                .recipientName(contract.getVendorName())
+                .type(isAccept ? "CONTRACT_VENDOR_ACCEPTED" : "CONTRACT_VENDOR_REJECTED")
+                .subject(isAccept
+                    ? "Vendor accepted contract #" + contractId
+                    : "Vendor rejected contract #" + contractId)
+                .message(isAccept
+                    ? "Vendor " + contract.getVendorName() + " has ACCEPTED contract #" + contractId
+                        + " for project '" + contract.getProjectName() + "'."
+                    : "Vendor " + contract.getVendorName() + " has REJECTED contract #" + contractId
+                        + " for project '" + contract.getProjectName() + "'. Reason: " + remarks)
+                .referenceId(String.valueOf(contractId))
+                .referenceType("CONTRACT")
+                .build());
+
+        return result;
+    }
+
     public void deleteContract(Long contractId) {
         Contract contract = findById(contractId);
         if (contract.getStatus() != ContractStatus.DRAFT) {
@@ -188,7 +233,10 @@ public class ContractServiceImpl implements ContractService {
             .complianceFlag(request.getComplianceFlag() != null ? request.getComplianceFlag() : false)
             .sequenceNumber(request.getSequenceNumber())
             .build();
-        return mapTermToResponse(contractTermRepository.save(term));
+        contractTermRepository.save(term);
+        contract.setStatus(ContractStatus.PENDING);
+        contractRepository.save(contract);
+        return mapTermToResponse(term);
     }
 
     @Transactional(readOnly = true)
@@ -257,7 +305,8 @@ public class ContractServiceImpl implements ContractService {
             .contractId(c.getContractId()).vendorId(c.getVendorId()).vendorName(c.getVendorName())
             .projectId(c.getProjectId()).projectName(c.getProjectName())
             .startDate(c.getStartDate()).endDate(c.getEndDate()).value(c.getValue())
-            .status(c.getStatus()).description(c.getDescription())
+            .status(c.getStatus())
+            .description(c.getDescription()).vendorRemarks(c.getVendorRemarks())
             .createdAt(c.getCreatedAt()).updatedAt(c.getUpdatedAt()).build();
     }
 

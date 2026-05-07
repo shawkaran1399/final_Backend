@@ -56,6 +56,9 @@ public class Contract {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "vendor_remarks", columnDefinition = "TEXT")
+    private String vendorRemarks;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

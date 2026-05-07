@@ -18,6 +18,7 @@ public class ContractResponseDTO {
     private BigDecimal value;
     private ContractStatus status;
     private String description;
+    private String vendorRemarks;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
