@@ -1,5 +1,5 @@
 package com.buildledger.notification.controller;
-
+import org.springframework.security.core.Authentication;
 import com.buildledger.notification.entity.Notification;
 import com.buildledger.notification.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,6 +33,14 @@ public class NotificationController {
     @Operation(summary = "Get undelivered notifications [ADMIN only]")
     public ResponseEntity<List<Notification>> getPending() {
         return ResponseEntity.ok(notificationService.getPending());
+    }
+
+    @GetMapping("/my")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get my own notifications [All roles]")
+    public ResponseEntity<List<Notification>> getMyNotifications(Authentication authentication) {
+        String identifier = authentication.getName();
+        return ResponseEntity.ok(notificationService.getByEmail(identifier));
     }
 
     @GetMapping("/recipient/{email}")

@@ -1,4 +1,5 @@
 package com.buildledger.contract.service.impl;
+
 import com.buildledger.contract.event.NotificationEvent;
 import com.buildledger.contract.event.NotificationProducer;
 import com.buildledger.contract.dto.request.ProjectRequestDTO;
@@ -32,7 +33,7 @@ public class ProjectServiceImpl implements ProjectService {
 
     private final ProjectRepository projectRepository;
     private final IamServiceClient iamServiceClient;
-    private final NotificationProducer notificationProducer;  // ← ADD THIS
+    private final NotificationProducer notificationProducer;
 
     @Override
     public ProjectResponseDTO createProject(ProjectRequestDTO request) {
@@ -42,29 +43,34 @@ public class ProjectServiceImpl implements ProjectService {
             throw new BadRequestException("End date cannot be before start date");
         }
 
-        String managerName = validateAndGetManagerName(request.getManagerId());
+        // ← existing logic unchanged — now also gets username
+        Map<String, String> managerInfo = validateAndGetManagerInfo(request.getManagerId());
+        String managerName     = managerInfo.get("name");
+        String managerUsername = managerInfo.get("username");
 
         Project project = Project.builder()
-            .name(request.getName())
-            .description(request.getDescription())
-            .location(request.getLocation())
-            .budget(request.getBudget())
-            .startDate(request.getStartDate())
-            .endDate(request.getEndDate())
-            .managerId(request.getManagerId())
-            .managerName(managerName)
-            .build();
+                .name(request.getName())
+                .description(request.getDescription())
+                .location(request.getLocation())
+                .budget(request.getBudget())
+                .startDate(request.getStartDate())
+                .endDate(request.getEndDate())
+                .managerId(request.getManagerId())
+                .managerName(managerName)
+                .build();
 
         ProjectResponseDTO result = mapToResponse(projectRepository.save(project));
 
         notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail("")
+                .recipientEmail(managerUsername)   // ← pm_john username
                 .recipientName(managerName)
                 .type("PROJECT_CREATED")
-                .subject("New project created: " + request.getName())
-                .message("A new project '" + request.getName() + "' has been created at location '"
-                        + request.getLocation() + "' with budget " + request.getBudget()
-                        + ". Start date: " + request.getStartDate() + ", End date: " + request.getEndDate())
+                .subject("You have been assigned to a new project: " + request.getName())
+                .message("Dear " + managerName + ", you have been assigned as Project Manager for '"
+                        + request.getName() + "' at location '" + request.getLocation()
+                        + "'. Budget: " + request.getBudget()
+                        + ". Start date: " + request.getStartDate()
+                        + ", End date: " + request.getEndDate())
                 .referenceId(String.valueOf(result.getProjectId()))
                 .referenceType("PROJECT")
                 .build());
@@ -107,24 +113,38 @@ public class ProjectServiceImpl implements ProjectService {
         if (request.getEndDate() != null) project.setEndDate(request.getEndDate());
 
         if (request.getManagerId() != null) {
-            String managerName = validateAndGetManagerName(request.getManagerId());
+            Map<String, String> managerInfo = validateAndGetManagerInfo(request.getManagerId());
+            String newManagerName     = managerInfo.get("name");
+            String newManagerUsername = managerInfo.get("username");
             project.setManagerId(request.getManagerId());
-            project.setManagerName(managerName);
+            project.setManagerName(newManagerName);
+
+            // ← Notify new PM they have been assigned
+            notificationProducer.send("contract-events", NotificationEvent.builder()
+                    .recipientEmail(newManagerUsername)
+                    .recipientName(newManagerName)
+                    .type("PROJECT_CREATED")
+                    .subject("You have been assigned to project: " + project.getName())
+                    .message("Dear " + newManagerName + ", you have been assigned as "
+                            + "Project Manager for '" + project.getName() + "'.")
+                    .referenceId(String.valueOf(project.getProjectId()))
+                    .referenceType("PROJECT")
+                    .build());
         }
 
         return mapToResponse(projectRepository.save(project));
     }
 
     @Override
-    public ProjectResponseDTO updateProjectStatus(Long projectId, ProjectStatus  newStatus) {
+    public ProjectResponseDTO updateProjectStatus(Long projectId, ProjectStatus newStatus) {
         log.info("Updating project {} status to {}", projectId, newStatus);
         Project project = findById(projectId);
         ProjectStatus current = project.getStatus();
 
         if (!current.canTransitionTo(newStatus)) {
             throw new BadRequestException(
-                "Invalid status transition from " + current + " to " + newStatus +
-                ". Allowed: PLANNING→ACTIVE|CANCELLED, ACTIVE→ON_HOLD|COMPLETED|CANCELLED, ON_HOLD→ACTIVE|CANCELLED.");
+                    "Invalid status transition from " + current + " to " + newStatus +
+                            ". Allowed: PLANNING→ACTIVE|CANCELLED, ACTIVE→ON_HOLD|COMPLETED|CANCELLED, ON_HOLD→ACTIVE|CANCELLED.");
         }
 
         if (newStatus == ProjectStatus.COMPLETED) {
@@ -135,11 +155,12 @@ public class ProjectServiceImpl implements ProjectService {
         ProjectResponseDTO result = mapToResponse(projectRepository.save(project));
 
         notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail("")
+                .recipientEmail(getManagerUsername(project.getManagerId()))  // ← pm username
                 .recipientName(project.getManagerName())
                 .type("PROJECT_STATUS_CHANGED")
                 .subject("Project status updated: " + project.getName())
-                .message("Project '" + project.getName() + "' status has changed from "
+                .message("Dear " + project.getManagerName() + ", project '"
+                        + project.getName() + "' status has changed from "
                         + current + " to " + newStatus + ".")
                 .referenceId(String.valueOf(project.getProjectId()))
                 .referenceType("PROJECT")
@@ -154,7 +175,10 @@ public class ProjectServiceImpl implements ProjectService {
         log.info("Project deleted: id={}", projectId);
     }
 
-    private String validateAndGetManagerName(Long managerId) {
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    // ← UPDATED: returns both name and username (replaces old validateAndGetManagerName)
+    private Map<String, String> validateAndGetManagerInfo(Long managerId) {
         ApiResponseDTO<Map<String, Object>> response;
         try {
             response = iamServiceClient.getUserById(managerId);
@@ -170,26 +194,39 @@ public class ProjectServiceImpl implements ProjectService {
             throw new ResourceNotFoundException("User", "id", managerId);
         }
         Map<String, Object> userData = response.getData();
+        log.info("=== IAM userData: {}", userData);  // ← ADD THIS
         String role = (String) userData.get("role");
         if (!"PROJECT_MANAGER".equals(role)) {
             throw new BadRequestException(
-                "User ID " + managerId + " is not a PROJECT_MANAGER. Only PROJECT_MANAGER role can manage projects.");
+                    "User ID " + managerId + " is not a PROJECT_MANAGER. Only PROJECT_MANAGER role can manage projects.");
         }
-        return (String) userData.get("name");
+        return Map.of(
+                "name",     (String) userData.getOrDefault("name", ""),
+                "username", (String) userData.getOrDefault("username", "")
+        );
+    }
+
+    // ← NEW: small helper to get username safely for updateProjectStatus
+    private String getManagerUsername(Long managerId) {
+        try {
+            return validateAndGetManagerInfo(managerId).get("username");
+        } catch (Exception e) {
+            log.warn("Could not fetch manager username for id={}", managerId);
+            return "";
+        }
     }
 
     private Project findById(Long projectId) {
         return projectRepository.findById(projectId)
-            .orElseThrow(() -> new ResourceNotFoundException("Project", "id", projectId));
+                .orElseThrow(() -> new ResourceNotFoundException("Project", "id", projectId));
     }
 
     private ProjectResponseDTO mapToResponse(Project p) {
         return ProjectResponseDTO.builder()
-            .projectId(p.getProjectId()).name(p.getName()).description(p.getDescription())
-            .location(p.getLocation()).budget(p.getBudget()).startDate(p.getStartDate())
-            .endDate(p.getEndDate()).actualEndDate(p.getActualEndDate()).status(p.getStatus())
-            .managerId(p.getManagerId()).managerName(p.getManagerName())
-            .createdAt(p.getCreatedAt()).updatedAt(p.getUpdatedAt()).build();
+                .projectId(p.getProjectId()).name(p.getName()).description(p.getDescription())
+                .location(p.getLocation()).budget(p.getBudget()).startDate(p.getStartDate())
+                .endDate(p.getEndDate()).actualEndDate(p.getActualEndDate()).status(p.getStatus())
+                .managerId(p.getManagerId()).managerName(p.getManagerName())
+                .createdAt(p.getCreatedAt()).updatedAt(p.getUpdatedAt()).build();
     }
 }
-
