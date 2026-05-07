@@ -44,6 +44,11 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         validateDeliveryDateInWindow(request.getDate(), contractData);
         validateVendorOwnership(contractData);
 
+        // ← get vendor and manager info from contract data
+        String vendorUsername   = String.valueOf(contractData.getOrDefault("vendorUsername", ""));
+        String vendorName       = String.valueOf(contractData.getOrDefault("vendorName", "Vendor"));
+        String managerUsername  = String.valueOf(contractData.getOrDefault("managerUsername", ""));
+
         Delivery delivery = Delivery.builder()
                 .contractId(request.getContractId())
                 .date(request.getDate())
@@ -51,16 +56,20 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
                 .quantity(request.getQuantity())
                 .unit(request.getUnit())
                 .remarks(request.getRemarks())
+                .vendorUsername(vendorUsername)    // ← store
+                .managerUsername(managerUsername)  // ← store
                 .build();
 
         DeliveryResponseDTO result = mapToResponse(deliveryRepository.save(delivery));
 
+        // ← DELIVERY_CREATED → notify vendor
         notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail("")
-                .recipientName("Admin")
+                .recipientEmail(vendorUsername)
+                .recipientName(vendorName)
                 .type("DELIVERY_CREATED")
-                .subject("New delivery scheduled for contract #" + request.getContractId())
-                .message("A new delivery has been scheduled for contract #" + request.getContractId()
+                .subject("New delivery scheduled for your contract #" + request.getContractId())
+                .message("Dear " + vendorName + ", a new delivery has been scheduled for your contract #"
+                        + request.getContractId()
                         + ". Item: " + request.getItem()
                         + ", Quantity: " + request.getQuantity() + " " + request.getUnit()
                         + ", Expected date: " + request.getDate())
@@ -84,7 +93,8 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
     @Transactional(readOnly = true)
     public List<DeliveryResponseDTO> getDeliveriesByContract(Long contractId) {
         validateContractActive(contractId);
-        return deliveryRepository.findByContractId(contractId).stream().map(this::mapToResponse).collect(Collectors.toList());
+        return deliveryRepository.findByContractId(contractId).stream()
+                .map(this::mapToResponse).collect(Collectors.toList());
     }
 
     public DeliveryResponseDTO updateDeliveryStatus(Long deliveryId, DeliveryStatus nextStatus) {
@@ -96,7 +106,8 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         if (!current.canTransitionTo(nextStatus)) {
             throw new BadRequestException(
                     "Invalid status transition from " + current + " to " + nextStatus +
-                            ". Allowed transitions: PENDING→MARKED_DELIVERED|DELAYED, MARKED_DELIVERED→ACCEPTED|REJECTED, DELAYED→MARKED_DELIVERED.");
+                            ". Allowed transitions: PENDING→MARKED_DELIVERED|DELAYED, " +
+                            "MARKED_DELIVERED→ACCEPTED|REJECTED, DELAYED→MARKED_DELIVERED.");
         }
 
         if (nextStatus == DeliveryStatus.ACCEPTED || nextStatus == DeliveryStatus.REJECTED) {
@@ -110,8 +121,9 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         DeliveryResponseDTO result = mapToResponse(deliveryRepository.save(delivery));
 
         if (nextStatus == DeliveryStatus.ACCEPTED) {
+            // PM accepted → notify VENDOR
             notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail("")
+                    .recipientEmail(delivery.getVendorUsername())
                     .recipientName("Vendor")
                     .type("DELIVERY_ACCEPTED")
                     .subject("Your delivery has been accepted")
@@ -122,27 +134,45 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
                     .build());
 
         } else if (nextStatus == DeliveryStatus.REJECTED) {
+            // PM rejected → notify VENDOR
             notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail("")
+                    .recipientEmail(delivery.getVendorUsername())
                     .recipientName("Vendor")
                     .type("DELIVERY_REJECTED")
                     .subject("Your delivery has been rejected")
                     .message("Your delivery #" + delivery.getDeliveryId() + " for item '"
-                            + delivery.getItem() + "' has been REJECTED. Please check with your project manager.")
+                            + delivery.getItem() + "' has been REJECTED. "
+                            + "Please check with your project manager.")
                     .referenceId(String.valueOf(delivery.getDeliveryId()))
                     .referenceType("DELIVERY")
                     .build());
 
         } else if (nextStatus == DeliveryStatus.MARKED_DELIVERED) {
+            // Vendor marked delivered → notify PM
             notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail("")
-                    .recipientName("Admin")
+                    .recipientEmail(delivery.getManagerUsername())
+                    .recipientName("Project Manager")
                     .type("DELIVERY_MARKED_DELIVERED")
-                    .subject("Delivery #" + deliveryId + " marked as delivered")
+                    .subject("Delivery #" + deliveryId + " marked as delivered — action required")
                     .message("Delivery #" + deliveryId + " for contract #" + delivery.getContractId()
                             + " has been marked as delivered by the vendor."
                             + " Item: " + delivery.getItem()
-                            + ". Awaiting acceptance from Project Manager.")
+                            + ". Please review and ACCEPT or REJECT.")
+                    .referenceId(String.valueOf(deliveryId))
+                    .referenceType("DELIVERY")
+                    .build());
+
+        } else if (nextStatus == DeliveryStatus.DELAYED) {
+            // ← NEW: Vendor marked delayed → notify PM
+            notificationProducer.send("delivery-events", NotificationEvent.builder()
+                    .recipientEmail(delivery.getManagerUsername())
+                    .recipientName("Project Manager")
+                    .type("DELIVERY_DELAYED")
+                    .subject("Delivery #" + deliveryId + " has been delayed")
+                    .message("Delivery #" + deliveryId + " for contract #" + delivery.getContractId()
+                            + " has been marked as DELAYED by the vendor."
+                            + " Item: " + delivery.getItem()
+                            + ". Original expected date: " + delivery.getDate())
                     .referenceId(String.valueOf(deliveryId))
                     .referenceType("DELIVERY")
                     .build());
@@ -174,11 +204,12 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
         DeliveryResponseDTO result = mapToResponse(deliveryRepository.save(delivery));
 
+        // ← DELIVERY_UPDATED → notify vendor
         notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail("")
-                .recipientName("Admin")
+                .recipientEmail(delivery.getVendorUsername())
+                .recipientName("Vendor")
                 .type("DELIVERY_UPDATED")
-                .subject("Delivery #" + deliveryId + " details updated")
+                .subject("Delivery #" + deliveryId + " has been updated")
                 .message("Delivery #" + deliveryId + " for contract #" + delivery.getContractId()
                         + " has been updated. Item: " + delivery.getItem()
                         + ", Quantity: " + delivery.getQuantity() + " " + delivery.getUnit()
@@ -195,16 +226,22 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         if (delivery.getStatus() != DeliveryStatus.PENDING) {
             throw new BadRequestException("Only PENDING deliveries can be deleted.");
         }
+
+        String vendorUsername = delivery.getVendorUsername();
+        String contractId     = String.valueOf(delivery.getContractId());
+        String item           = delivery.getItem();
+
         deliveryRepository.delete(delivery);
 
+        // ← DELIVERY_DELETED → notify vendor
         notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail("")
-                .recipientName("Admin")
+                .recipientEmail(vendorUsername)
+                .recipientName("Vendor")
                 .type("DELIVERY_DELETED")
                 .subject("Delivery #" + deliveryId + " has been deleted")
-                .message("Delivery #" + deliveryId + " for contract #" + delivery.getContractId()
+                .message("Delivery #" + deliveryId + " for contract #" + contractId
                         + " has been permanently deleted."
-                        + " Item: " + delivery.getItem())
+                        + " Item: " + item)
                 .referenceId(String.valueOf(deliveryId))
                 .referenceType("DELIVERY")
                 .build());
@@ -219,12 +256,15 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         } catch (FeignException.NotFound e) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
         } catch (FeignException e) {
-            throw new ServiceUnavailableException("Contract Service is currently unavailable. Please try again later.");
+            throw new ServiceUnavailableException(
+                    "Contract Service is currently unavailable. Please try again later.");
         } catch (Exception e) {
-            throw new ServiceUnavailableException("Contract Service is currently unavailable. Please try again later.");
+            throw new ServiceUnavailableException(
+                    "Contract Service is currently unavailable. Please try again later.");
         }
         if (ContractServiceFallback.MARKER.equals(response.getMessage())) {
-            throw new ServiceUnavailableException("Contract Service is currently unavailable. Please try again later.");
+            throw new ServiceUnavailableException(
+                    "Contract Service is currently unavailable. Please try again later.");
         }
         if (!response.isSuccess() || response.getData() == null) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
@@ -233,13 +273,14 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         String status = (String) data.get("status");
         if (!"ACTIVE".equals(status)) {
             throw new BadRequestException(
-                    "Deliveries can only be logged against ACTIVE contracts. Contract " + contractId +
-                            " is currently " + status + ".");
+                    "Deliveries can only be logged against ACTIVE contracts. Contract "
+                            + contractId + " is currently " + status + ".");
         }
         return data;
     }
 
-    private void validateDeliveryDateInWindow(java.time.LocalDate deliveryDate, Map<String, Object> contractData) {
+    private void validateDeliveryDateInWindow(java.time.LocalDate deliveryDate,
+                                              Map<String, Object> contractData) {
         if (deliveryDate == null) return;
         Object startObj = contractData.get("startDate");
         Object endObj   = contractData.get("endDate");
@@ -248,8 +289,8 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         java.time.LocalDate contractEnd   = java.time.LocalDate.parse(endObj.toString());
         if (deliveryDate.isBefore(contractStart) || deliveryDate.isAfter(contractEnd)) {
             throw new BadRequestException(
-                    "Delivery date " + deliveryDate + " is outside the contract period (" +
-                            contractStart + " to " + contractEnd + ").");
+                    "Delivery date " + deliveryDate + " is outside the contract period ("
+                            + contractStart + " to " + contractEnd + ").");
         }
     }
 
@@ -266,7 +307,8 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         Object vendorIdObj = contractData.get("vendorId");
         if (vendorIdObj == null) return;
         Long contractVendorId = vendorIdObj instanceof Integer
-                ? ((Integer) vendorIdObj).longValue() : ((Number) vendorIdObj).longValue();
+                ? ((Integer) vendorIdObj).longValue()
+                : ((Number) vendorIdObj).longValue();
 
         ApiResponseDTO<Map<String, Object>> vendorResponse;
         try {
@@ -274,12 +316,15 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         } catch (FeignException.NotFound e) {
             throw new ResourceNotFoundException("Vendor", "id", contractVendorId);
         } catch (FeignException e) {
-            throw new ServiceUnavailableException("Vendor Service is currently unavailable. Please try again later.");
+            throw new ServiceUnavailableException(
+                    "Vendor Service is currently unavailable. Please try again later.");
         } catch (Exception e) {
-            throw new ServiceUnavailableException("Vendor Service is currently unavailable. Please try again later.");
+            throw new ServiceUnavailableException(
+                    "Vendor Service is currently unavailable. Please try again later.");
         }
         if (VendorServiceFallback.MARKER.equals(vendorResponse.getMessage())) {
-            throw new ServiceUnavailableException("Vendor Service is currently unavailable. Please try again later.");
+            throw new ServiceUnavailableException(
+                    "Vendor Service is currently unavailable. Please try again later.");
         }
         if (!vendorResponse.isSuccess() || vendorResponse.getData() == null) {
             throw new ResourceNotFoundException("Vendor", "id", contractVendorId);
@@ -287,7 +332,8 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         Object userIdObj = vendorResponse.getData().get("userId");
         if (userIdObj == null) return;
         Long vendorUserId = userIdObj instanceof Integer
-                ? ((Integer) userIdObj).longValue() : ((Number) userIdObj).longValue();
+                ? ((Integer) userIdObj).longValue()
+                : ((Number) userIdObj).longValue();
         if (!authenticatedUserId.equals(vendorUserId)) {
             throw new org.springframework.security.access.AccessDeniedException(
                     "Access denied: you do not own the vendor associated with this contract.");
@@ -296,7 +342,8 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
     private void requireRole(String... roles) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null) throw new org.springframework.security.access.AccessDeniedException("Not authenticated");
+        if (auth == null)
+            throw new org.springframework.security.access.AccessDeniedException("Not authenticated");
         boolean hasRole = auth.getAuthorities().stream()
                 .anyMatch(a -> {
                     for (String role : roles) {
