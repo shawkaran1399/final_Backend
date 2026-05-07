@@ -2,6 +2,7 @@ package com.buildledger.contract.controller;
 
 import com.buildledger.contract.dto.request.ContractRequestDTO;
 import com.buildledger.contract.dto.request.ContractTermRequestDTO;
+import com.buildledger.contract.exception.BadRequestException;
 import com.buildledger.contract.dto.response.*;
 import com.buildledger.contract.enums.ContractStatus;
 import com.buildledger.contract.service.ContractService;
@@ -81,6 +82,24 @@ public class ContractController {
             @PathVariable Long contractId, @RequestParam ContractStatus status) {
         return ResponseEntity.ok(ApiResponseDTO.success("Contract status updated",
             contractService.updateContractStatus(contractId, status)));
+    }
+
+    @PatchMapping("/{contractId}/vendor-response")
+    @PreAuthorize("hasRole('VENDOR')")
+    @Operation(summary = "Vendor accepts or rejects an assigned contract [VENDOR]",
+               description = "Action must be ACCEPT or REJECT. Remarks are required when rejecting. " +
+                             "Contract must be in DRAFT status and belong to the requesting vendor.")
+    public ResponseEntity<ApiResponseDTO<ContractResponseDTO>> vendorResponse(
+            @PathVariable Long contractId,
+            @RequestParam String action,
+            @RequestParam(required = false) String remarks,
+            @RequestHeader("X-Vendor-Id") Long vendorId) {
+        if (!action.equalsIgnoreCase("ACCEPT") && !action.equalsIgnoreCase("REJECT")) {
+            throw new BadRequestException("action must be ACCEPT or REJECT");
+        }
+        return ResponseEntity.ok(ApiResponseDTO.success(
+            "Contract " + action.toUpperCase() + "ED successfully",
+            contractService.vendorRespondToContract(contractId, action, remarks, vendorId)));
     }
 
     @DeleteMapping("/{contractId}")
