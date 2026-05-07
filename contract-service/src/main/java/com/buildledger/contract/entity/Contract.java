@@ -31,6 +31,9 @@ public class Contract {
     @Column(name = "vendor_name", length = 100)
     private String vendorName;
 
+    @Column(name = "vendor_username", length = 100)
+    private String vendorUsername;   // ← ADD
+
     /** Project ID from project-service */
     @Column(name = "project_id", nullable = false)
     private Long projectId;
