@@ -8,6 +8,7 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="iam-service" />
+        <module name="delivery-service" />
         <module name="finance-service" />
         <module name="contract-service" />
         <module name="api-gateway" />
@@ -26,9 +27,6 @@
         <module name="vendor-service" />
       </profile>
     </annotationProcessing>
-    <bytecodeTargetLevel>
-      <module name="delivery-service" target="17" />
-    </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
