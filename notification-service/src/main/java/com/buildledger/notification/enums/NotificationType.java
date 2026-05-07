@@ -57,6 +57,7 @@ public enum NotificationType
     //project
     PROJECT_CREATED,       // ← ADD THIS
     PROJECT_STATUS_CHANGED,
+    PROJECT_UPDATED,   // ← ADD
 //    COMPLIANCE_REVIEW_DUE,
 //    COMPLIANCE_OVERDUE,
     GENERAL

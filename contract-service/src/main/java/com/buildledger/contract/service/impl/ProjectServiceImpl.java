@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -105,21 +106,48 @@ public class ProjectServiceImpl implements ProjectService {
             throw new BadRequestException("End date cannot be before start date");
         }
 
-        if (request.getName() != null) project.setName(request.getName());
-        if (request.getDescription() != null) project.setDescription(request.getDescription());
-        if (request.getLocation() != null) project.setLocation(request.getLocation());
-        if (request.getBudget() != null) project.setBudget(request.getBudget());
-        if (request.getStartDate() != null) project.setStartDate(request.getStartDate());
-        if (request.getEndDate() != null) project.setEndDate(request.getEndDate());
+        // ← Declare ALL variables BEFORE if blocks
+        List<String> changes = new ArrayList<>();
+        String managerUsername = getManagerUsername(project.getManagerId());
+        String managerName = project.getManagerName();
 
-        if (request.getManagerId() != null) {
-            Map<String, String> managerInfo = validateAndGetManagerInfo(request.getManagerId());
-            String newManagerName     = managerInfo.get("name");
-            String newManagerUsername = managerInfo.get("username");
+        if (request.getName() != null && !request.getName().equals(project.getName())) {
+            changes.add("Name: '" + project.getName() + "' → '" + request.getName() + "'");
+            project.setName(request.getName());
+        }
+        if (request.getDescription() != null && !request.getDescription().equals(project.getDescription())) {
+            changes.add("Description updated");
+            project.setDescription(request.getDescription());
+        }
+        if (request.getLocation() != null && !request.getLocation().equals(project.getLocation())) {
+            changes.add("Location: '" + project.getLocation() + "' → '" + request.getLocation() + "'");
+            project.setLocation(request.getLocation());
+        }
+        if (request.getBudget() != null && !request.getBudget().equals(project.getBudget())) {
+            changes.add("Budget: " + project.getBudget() + " → " + request.getBudget());
+            project.setBudget(request.getBudget());
+        }
+        if (request.getStartDate() != null && !request.getStartDate().equals(project.getStartDate())) {
+            changes.add("Start date: " + project.getStartDate() + " → " + request.getStartDate());
+            project.setStartDate(request.getStartDate());
+        }
+        if (request.getEndDate() != null && !request.getEndDate().equals(project.getEndDate())) {
+            changes.add("End date: " + project.getEndDate() + " → " + request.getEndDate());
+            project.setEndDate(request.getEndDate());
+        }
+
+        if (request.getManagerId() != null
+                && !request.getManagerId().equals(project.getManagerId())) {
+            Map<String, String> newManagerInfo = validateAndGetManagerInfo(request.getManagerId());
+            String newManagerName     = newManagerInfo.get("name");
+            String newManagerUsername = newManagerInfo.get("username");
+
+            changes.add("Manager: '" + project.getManagerName() + "' → '" + newManagerName + "'");
+
             project.setManagerId(request.getManagerId());
             project.setManagerName(newManagerName);
 
-            // ← Notify new PM they have been assigned
+            // Notify NEW manager they have been assigned
             notificationProducer.send("contract-events", NotificationEvent.builder()
                     .recipientEmail(newManagerUsername)
                     .recipientName(newManagerName)
@@ -130,11 +158,32 @@ public class ProjectServiceImpl implements ProjectService {
                     .referenceId(String.valueOf(project.getProjectId()))
                     .referenceType("PROJECT")
                     .build());
+
+            // Update outer variables to point to new manager
+            managerUsername = newManagerUsername;
+            managerName     = newManagerName;
         }
 
-        return mapToResponse(projectRepository.save(project));
-    }
+        ProjectResponseDTO result = mapToResponse(projectRepository.save(project));
 
+        // Send PROJECT_UPDATED notification with changed fields
+        if (!changes.isEmpty()) {
+            String changesText = String.join(", ", changes);
+            notificationProducer.send("contract-events", NotificationEvent.builder()
+                    .recipientEmail(managerUsername)
+                    .recipientName(managerName)
+                    .type("PROJECT_UPDATED")
+                    .subject("Project updated: " + project.getName())
+                    .message("Dear " + managerName + ", your project '"
+                            + project.getName() + "' has been updated by admin. "
+                            + "Changes: " + changesText)
+                    .referenceId(String.valueOf(project.getProjectId()))
+                    .referenceType("PROJECT")
+                    .build());
+        }
+
+        return result;
+    }
     @Override
     public ProjectResponseDTO updateProjectStatus(Long projectId, ProjectStatus newStatus) {
         log.info("Updating project {} status to {}", projectId, newStatus);
