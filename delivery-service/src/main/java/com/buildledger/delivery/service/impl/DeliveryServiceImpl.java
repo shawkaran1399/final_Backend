@@ -12,6 +12,8 @@ import com.buildledger.delivery.exception.ResourceNotFoundException;
 import com.buildledger.delivery.exception.ServiceUnavailableException;
 import com.buildledger.delivery.feign.ContractServiceClient;
 import com.buildledger.delivery.feign.ContractServiceFallback;
+import com.buildledger.delivery.feign.VendorServiceClient;
+import com.buildledger.delivery.feign.VendorServiceFallback;
 import com.buildledger.delivery.repository.DeliveryRepository;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
@@ -33,11 +35,14 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
     private final DeliveryRepository deliveryRepository;
     private final ContractServiceClient contractServiceClient;
+    private final VendorServiceClient vendorServiceClient;
     private final NotificationProducer notificationProducer;
 
     public DeliveryResponseDTO createDelivery(DeliveryRequestDTO request) {
         log.info("Creating delivery for contract {}", request.getContractId());
-        validateContractExists(request.getContractId());
+        Map<String, Object> contractData = validateContractActive(request.getContractId());
+        validateDeliveryDateInWindow(request.getDate(), contractData);
+        validateVendorOwnership(contractData);
 
         Delivery delivery = Delivery.builder()
                 .contractId(request.getContractId())
@@ -78,7 +83,7 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
     @Transactional(readOnly = true)
     public List<DeliveryResponseDTO> getDeliveriesByContract(Long contractId) {
-        validateContractExists(contractId);
+        validateContractActive(contractId);
         return deliveryRepository.findByContractId(contractId).stream().map(this::mapToResponse).collect(Collectors.toList());
     }
 
@@ -94,7 +99,6 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
                             ". Allowed transitions: PENDING→MARKED_DELIVERED|DELAYED, MARKED_DELIVERED→ACCEPTED|REJECTED, DELAYED→MARKED_DELIVERED.");
         }
 
-        // Role-based validation for specific transitions
         if (nextStatus == DeliveryStatus.ACCEPTED || nextStatus == DeliveryStatus.REJECTED) {
             requireRole("PROJECT_MANAGER", "ADMIN");
         }
@@ -153,10 +157,16 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
             throw new BadRequestException("Delivery details can only be updated when status is PENDING.");
         }
         if (request.getContractId() != null) {
-            validateContractExists(request.getContractId());
+            validateContractActive(request.getContractId());
             delivery.setContractId(request.getContractId());
         }
-        if (request.getDate() != null) delivery.setDate(request.getDate());
+        if (request.getDate() != null) {
+            Map<String, Object> contractData = validateContractActive(
+                    request.getContractId() != null ? request.getContractId() : delivery.getContractId()
+            );
+            validateDeliveryDateInWindow(request.getDate(), contractData);
+            delivery.setDate(request.getDate());
+        }
         if (request.getItem() != null) delivery.setItem(request.getItem());
         if (request.getQuantity() != null) delivery.setQuantity(request.getQuantity());
         if (request.getUnit() != null) delivery.setUnit(request.getUnit());
@@ -202,7 +212,7 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private void validateContractExists(Long contractId) {
+    private Map<String, Object> validateContractActive(Long contractId) {
         ApiResponseDTO<Map<String, Object>> response;
         try {
             response = contractServiceClient.getContractById(contractId);
@@ -213,12 +223,74 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         } catch (Exception e) {
             throw new ServiceUnavailableException("Contract Service is currently unavailable. Please try again later.");
         }
-
         if (ContractServiceFallback.MARKER.equals(response.getMessage())) {
             throw new ServiceUnavailableException("Contract Service is currently unavailable. Please try again later.");
         }
         if (!response.isSuccess() || response.getData() == null) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
+        }
+        Map<String, Object> data = response.getData();
+        String status = (String) data.get("status");
+        if (!"ACTIVE".equals(status)) {
+            throw new BadRequestException(
+                    "Deliveries can only be logged against ACTIVE contracts. Contract " + contractId +
+                            " is currently " + status + ".");
+        }
+        return data;
+    }
+
+    private void validateDeliveryDateInWindow(java.time.LocalDate deliveryDate, Map<String, Object> contractData) {
+        if (deliveryDate == null) return;
+        Object startObj = contractData.get("startDate");
+        Object endObj   = contractData.get("endDate");
+        if (startObj == null || endObj == null) return;
+        java.time.LocalDate contractStart = java.time.LocalDate.parse(startObj.toString());
+        java.time.LocalDate contractEnd   = java.time.LocalDate.parse(endObj.toString());
+        if (deliveryDate.isBefore(contractStart) || deliveryDate.isAfter(contractEnd)) {
+            throw new BadRequestException(
+                    "Delivery date " + deliveryDate + " is outside the contract period (" +
+                            contractStart + " to " + contractEnd + ").");
+        }
+    }
+
+    private void validateVendorOwnership(Map<String, Object> contractData) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) return;
+        boolean isVendor = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_VENDOR"));
+        if (!isVendor) return;
+
+        Long authenticatedUserId = (Long) auth.getCredentials();
+        if (authenticatedUserId == null) return;
+
+        Object vendorIdObj = contractData.get("vendorId");
+        if (vendorIdObj == null) return;
+        Long contractVendorId = vendorIdObj instanceof Integer
+                ? ((Integer) vendorIdObj).longValue() : ((Number) vendorIdObj).longValue();
+
+        ApiResponseDTO<Map<String, Object>> vendorResponse;
+        try {
+            vendorResponse = vendorServiceClient.getVendorById(contractVendorId);
+        } catch (FeignException.NotFound e) {
+            throw new ResourceNotFoundException("Vendor", "id", contractVendorId);
+        } catch (FeignException e) {
+            throw new ServiceUnavailableException("Vendor Service is currently unavailable. Please try again later.");
+        } catch (Exception e) {
+            throw new ServiceUnavailableException("Vendor Service is currently unavailable. Please try again later.");
+        }
+        if (VendorServiceFallback.MARKER.equals(vendorResponse.getMessage())) {
+            throw new ServiceUnavailableException("Vendor Service is currently unavailable. Please try again later.");
+        }
+        if (!vendorResponse.isSuccess() || vendorResponse.getData() == null) {
+            throw new ResourceNotFoundException("Vendor", "id", contractVendorId);
+        }
+        Object userIdObj = vendorResponse.getData().get("userId");
+        if (userIdObj == null) return;
+        Long vendorUserId = userIdObj instanceof Integer
+                ? ((Integer) userIdObj).longValue() : ((Number) userIdObj).longValue();
+        if (!authenticatedUserId.equals(vendorUserId)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Access denied: you do not own the vendor associated with this contract.");
         }
     }
 
