@@ -44,7 +44,7 @@ public class Project {
     private LocalDate actualEndDate;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false)
+    @Column(name = "status", nullable = false, length = 20)
     @Builder.Default
     private ProjectStatus status = ProjectStatus.PLANNING;
 
