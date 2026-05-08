@@ -56,6 +56,14 @@ public class ServiceTrackingController {
             serviceTrackingService.getServicesByContract(contractId)));
     }
 
+    @GetMapping("/status/{status}")
+    @Operation(summary = "Get services by status [ALL roles]")
+    public ResponseEntity<ApiResponseDTO<List<ServiceResponseDTO>>> getServicesByStatus(
+            @PathVariable ServiceStatus status) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Services retrieved",
+            serviceTrackingService.getServicesByStatus(status)));
+    }
+
     @PatchMapping("/{serviceId}/status")
     @Operation(summary = "Update service status",
                description = "Lifecycle: PENDING→IN_PROGRESS→COMPLETED→VERIFIED. " +
