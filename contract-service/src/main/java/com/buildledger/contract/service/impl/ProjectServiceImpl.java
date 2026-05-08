@@ -107,11 +107,10 @@ public class ProjectServiceImpl implements ProjectService {
             throw new BadRequestException("End date cannot be before start date");
         }
 
-        // Declare ALL variables before if blocks
-        List<String> changes      = new ArrayList<>();
-        String managerUsername    = getManagerUsername(project.getManagerId());
-        String managerName        = project.getManagerName();
-
+        List<String> changes   = new ArrayList<>();
+        String managerUsername = getManagerUsername(project.getManagerId());
+        String managerName     = project.getManagerName();
+ 
         if (request.getName() != null
                 && !request.getName().equals(project.getName())) {
             changes.add("Name: '" + project.getName() + "' → '" + request.getName() + "'");
@@ -143,6 +142,13 @@ public class ProjectServiceImpl implements ProjectService {
             project.setEndDate(request.getEndDate());
         }
 
+        if (request.getActualEndDate() != null
+                && !request.getActualEndDate().equals(project.getActualEndDate())) {
+            changes.add("Actual end date: " + project.getActualEndDate() + " → " + request.getActualEndDate());
+            project.setActualEndDate(request.getActualEndDate());
+        }
+ 
+
         // Manager reassignment
         if (request.getManagerId() != null
                 && !request.getManagerId().equals(project.getManagerId())) {
@@ -155,7 +161,7 @@ public class ProjectServiceImpl implements ProjectService {
             project.setManagerId(request.getManagerId());
             project.setManagerName(newManagerName);
 
-            // Notify NEW manager — PROJECT_MANAGER_REASSIGNED
+ 
             notificationProducer.send("contract-events", NotificationEvent.builder()
                     .recipientEmail(newManagerUsername)
                     .recipientName(newManagerName)
@@ -168,7 +174,6 @@ public class ProjectServiceImpl implements ProjectService {
                     .referenceType("PROJECT")
                     .build());
 
-            // Update outer variables to new manager
             managerUsername = newManagerUsername;
             managerName     = newManagerName;
             changes.add("Manager: '" + oldManagerName + "' → '" + newManagerName + "'");
@@ -176,7 +181,6 @@ public class ProjectServiceImpl implements ProjectService {
 
         ProjectResponseDTO result = mapToResponse(projectRepository.save(project));
 
-        // Send PROJECT_UPDATED with changed fields
         if (!changes.isEmpty()) {
             String changesText = String.join(", ", changes);
             notificationProducer.send("contract-events", NotificationEvent.builder()
@@ -218,7 +222,6 @@ public class ProjectServiceImpl implements ProjectService {
         String managerUsername = getManagerUsername(project.getManagerId());
         String managerName     = project.getManagerName();
 
-        // Determine specific notification type based on transition
         String notifType;
         String notifSubject;
         String notifMessage;
@@ -255,7 +258,7 @@ public class ProjectServiceImpl implements ProjectService {
                     + project.getName() + "' has been CANCELLED by admin.";
 
         } else {
-            // fallback for any other transition
+ 
             notifType    = "PROJECT_STATUS_CHANGED";
             notifSubject = "Project status updated: " + project.getName();
             notifMessage = "Dear " + managerName + ", project '"
@@ -280,7 +283,7 @@ public class ProjectServiceImpl implements ProjectService {
     public void deleteProject(Long projectId) {
         Project project = findById(projectId);
 
-        // Get manager info before deleting
+ 
         String managerUsername = getManagerUsername(project.getManagerId());
         String managerName     = project.getManagerName();
         String projectName     = project.getName();
@@ -288,7 +291,7 @@ public class ProjectServiceImpl implements ProjectService {
         projectRepository.delete(project);
         log.info("Project deleted: id={}", projectId);
 
-        // Notify PM their project was deleted
+ 
         notificationProducer.send("contract-events", NotificationEvent.builder()
                 .recipientEmail(managerUsername)
                 .recipientName(managerName)
