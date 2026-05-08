@@ -26,6 +26,11 @@ public class Delivery {
     @Column(name = "contract_id", nullable = false)
     private Long contractId;
 
+    @Column(name = "vendor_username", length = 100)
+    private String vendorUsername;    // ← vendor who owns the contract
+
+    @Column(name = "manager_username", length = 100)
+    private String managerUsername;   // ← PM of the contract
     @Column(name = "date", nullable = false)
     private LocalDate date;
 

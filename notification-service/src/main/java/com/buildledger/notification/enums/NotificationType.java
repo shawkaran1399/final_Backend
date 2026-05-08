@@ -6,6 +6,14 @@ public enum NotificationType
     USER_STATUS_CHANGED,
     USER_DELETED,
 
+    //service
+    SERVICE_CREATED,
+    SERVICE_UPDATED,
+    SERVICE_STARTED,
+    SERVICE_COMPLETED,
+    SERVICE_VERIFIED,
+    SERVICE_DELETED,
+
     //vendor
     VENDOR_REGISTERED,
     VENDOR_ACTIVATED,
@@ -19,7 +27,16 @@ public enum NotificationType
     VENDOR_DOCUMENT_REJECTED,
 
     //contract
-    CONTRACT_ACTIVATED,
+    CONTRACT_CREATED,                // new contract in DRAFT
+    CONTRACT_UPDATED,                // contract edited (only in DRAFT)
+    CONTRACT_TERM_ADDED,             // a term added to DRAFT contract
+    CONTRACT_TERM_EDITED,            // a term edited on DRAFT contract
+    CONTRACT_TERM_DELETED,           // a term deleted from DRAFT contract
+    CONTRACT_ACTIVATED,              // DRAFT → ACTIVE
+    CONTRACT_COMPLETED,              // ACTIVE → COMPLETED
+    CONTRACT_TERMINATED,             // ACTIVE → TERMINATED
+    CONTRACT_EXPIRED,                // ACTIVE → EXPIRED (manual or scheduler)
+    CONTRACT_DELETED,
 
     //invoice
     INVOICE_APPROVED,
@@ -55,9 +72,16 @@ public enum NotificationType
     COMPLIANCE_RECORD_DELETED,
 
     //project
-    PROJECT_CREATED,       // ← ADD THIS
+    PROJECT_CREATED,
+    PROJECT_UPDATED,
     PROJECT_STATUS_CHANGED,
-    PROJECT_UPDATED,   // ← ADD
+    PROJECT_ACTIVATED,
+    PROJECT_PUT_ON_HOLD,
+    PROJECT_RESUMED,
+    PROJECT_COMPLETED,
+    PROJECT_CANCELLED,
+    PROJECT_DELETED,
+    PROJECT_MANAGER_REASSIGNED,  // ← ADD
 //    COMPLIANCE_REVIEW_DUE,
 //    COMPLIANCE_OVERDUE,
     GENERAL

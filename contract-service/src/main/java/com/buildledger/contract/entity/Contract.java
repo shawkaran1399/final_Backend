@@ -31,6 +31,9 @@ public class Contract {
     @Column(name = "vendor_name", length = 100)
     private String vendorName;
 
+    @Column(name = "vendor_username", length = 100)
+    private String vendorUsername;   // ← ADD
+
     /** Project ID from project-service */
     @Column(name = "project_id", nullable = false)
     private Long projectId;
@@ -49,12 +52,15 @@ public class Contract {
     private BigDecimal value;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false)
+    @Column(name = "status", nullable = false, length = 20)
     @Builder.Default
     private ContractStatus status = ContractStatus.DRAFT;
 
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
+
+    @Column(name = "vendor_remarks", columnDefinition = "TEXT")
+    private String vendorRemarks;
 
     @CreatedDate
     @Column(name = "created_at", updatable = false)
