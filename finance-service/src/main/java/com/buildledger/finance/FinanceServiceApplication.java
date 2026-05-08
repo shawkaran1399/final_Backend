@@ -13,4 +13,3 @@ public class FinanceServiceApplication {
         dotenv.entries().forEach(e -> System.setProperty(e.getKey(), e.getValue()));
         SpringApplication.run(FinanceServiceApplication.class, args); }
 }
-

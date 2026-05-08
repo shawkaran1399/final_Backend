@@ -16,4 +16,3 @@ public class VendorServiceApplication {
         SpringApplication.run(VendorServiceApplication.class, args);
     }
 }
-

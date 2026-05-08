@@ -16,4 +16,3 @@ public class DeliveryServiceApplication {
         SpringApplication.run(DeliveryServiceApplication.class, args);
     }
 }
-

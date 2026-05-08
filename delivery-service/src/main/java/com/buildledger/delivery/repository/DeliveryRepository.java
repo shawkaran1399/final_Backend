@@ -10,5 +10,6 @@ import java.util.List;
 public interface DeliveryRepository extends JpaRepository<Delivery, Long> {
     List<Delivery> findByContractId(Long contractId);
     List<Delivery> findByStatus(DeliveryStatus status);
+    List<Delivery> findByStatusIn(List<DeliveryStatus> statuses);
 }
 

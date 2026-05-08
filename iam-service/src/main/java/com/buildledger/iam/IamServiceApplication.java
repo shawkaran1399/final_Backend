@@ -15,4 +15,3 @@ public class IamServiceApplication {
         SpringApplication.run(IamServiceApplication.class, args);
     }
 }
-

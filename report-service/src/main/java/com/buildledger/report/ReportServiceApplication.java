@@ -12,4 +12,3 @@ public class ReportServiceApplication {
         dotenv.entries().forEach(e -> System.setProperty(e.getKey(), e.getValue()));
         SpringApplication.run(ReportServiceApplication.class, args); }
 }
-
