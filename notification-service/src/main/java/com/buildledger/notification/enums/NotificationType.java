@@ -1,14 +1,12 @@
 package com.buildledger.notification.enums;
-
-public enum NotificationType {
-
-    // IAM
+ 
+public enum NotificationType
+{   //IAM
     USER_CREATED,
     USER_UPDATED,
     USER_STATUS_CHANGED,
     USER_DELETED,
 
-    // Service
     SERVICE_CREATED,
     SERVICE_UPDATED,
     SERVICE_STARTED,
@@ -16,7 +14,7 @@ public enum NotificationType {
     SERVICE_VERIFIED,
     SERVICE_DELETED,
 
-    // Vendor
+ 
     VENDOR_REGISTERED,
     VENDOR_ACTIVATED,
     VENDOR_SUSPENDED,
@@ -28,7 +26,7 @@ public enum NotificationType {
     VENDOR_DOCUMENT_APPROVED,
     VENDOR_DOCUMENT_REJECTED,
 
-    // Contract
+ 
     CONTRACT_CREATED,
     CONTRACT_UPDATED,
     CONTRACT_TERM_ADDED,
@@ -39,23 +37,22 @@ public enum NotificationType {
     CONTRACT_TERMINATED,
     CONTRACT_EXPIRED,
     CONTRACT_DELETED,
-
-    // Invoice
+ 
     INVOICE_APPROVED,
     INVOICE_REJECTED,
     INVOICE_SUBMITTED,
     INVOICE_PAID,
     INVOICE_DELETED,
+  
     SCHEDULER_INVOICE_DUE_REMINDER,
     SCHEDULER_INVOICE_OVERDUE_ALERT,
 
-    // Payment
+ 
     PAYMENT_COMPLETED,
     PAYMENT_INITIATED,
     PAYMENT_PROCESSING,
     PAYMENT_FAILED,
 
-    // Delivery
     DELIVERY_CREATED,
     DELIVERY_UPDATED,
     DELIVERY_MARKED_DELIVERED,
@@ -79,6 +76,7 @@ public enum NotificationType {
     COMPLIANCE_CHECK_FAILED,             // ← ADDED
     COMPLIANCE_STATUS_CHANGED,           // ← ADDED
     COMPLIANCE_FAILED,                   // ← ADDED
+ 
     COMPLIANCE_PASSED,
     COMPLIANCE_WAIVED,
     COMPLIANCE_REINITIATED,
@@ -86,7 +84,7 @@ public enum NotificationType {
     COMPLIANCE_REVIEW_DUE,               // ← UNCOMMENTED
     COMPLIANCE_OVERDUE,                  // ← UNCOMMENTED
 
-    // Project
+ 
     PROJECT_CREATED,
     PROJECT_UPDATED,
     PROJECT_STATUS_CHANGED,
@@ -96,7 +94,9 @@ public enum NotificationType {
     PROJECT_COMPLETED,
     PROJECT_CANCELLED,
     PROJECT_DELETED,
-    PROJECT_MANAGER_REASSIGNED,
-
+ 
+    PROJECT_MANAGER_REASSIGNED,  // ← ADD
+//    COMPLIANCE_REVIEW_DUE,
+//    COMPLIANCE_OVERDUE,
     GENERAL
 }
