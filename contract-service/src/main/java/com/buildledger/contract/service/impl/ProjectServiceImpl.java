@@ -110,7 +110,7 @@ public class ProjectServiceImpl implements ProjectService {
         List<String> changes   = new ArrayList<>();
         String managerUsername = getManagerUsername(project.getManagerId());
         String managerName     = project.getManagerName();
-
+ 
         if (request.getName() != null
                 && !request.getName().equals(project.getName())) {
             changes.add("Name: '" + project.getName() + "' → '" + request.getName() + "'");
@@ -141,11 +141,13 @@ public class ProjectServiceImpl implements ProjectService {
             changes.add("End date: " + project.getEndDate() + " → " + request.getEndDate());
             project.setEndDate(request.getEndDate());
         }
+
         if (request.getActualEndDate() != null
                 && !request.getActualEndDate().equals(project.getActualEndDate())) {
             changes.add("Actual end date: " + project.getActualEndDate() + " → " + request.getActualEndDate());
             project.setActualEndDate(request.getActualEndDate());
         }
+ 
 
         // Manager reassignment
         if (request.getManagerId() != null
@@ -159,6 +161,7 @@ public class ProjectServiceImpl implements ProjectService {
             project.setManagerId(request.getManagerId());
             project.setManagerName(newManagerName);
 
+ 
             notificationProducer.send("contract-events", NotificationEvent.builder()
                     .recipientEmail(newManagerUsername)
                     .recipientName(newManagerName)
@@ -255,6 +258,7 @@ public class ProjectServiceImpl implements ProjectService {
                     + project.getName() + "' has been CANCELLED by admin.";
 
         } else {
+ 
             notifType    = "PROJECT_STATUS_CHANGED";
             notifSubject = "Project status updated: " + project.getName();
             notifMessage = "Dear " + managerName + ", project '"
@@ -279,6 +283,7 @@ public class ProjectServiceImpl implements ProjectService {
     public void deleteProject(Long projectId) {
         Project project = findById(projectId);
 
+ 
         String managerUsername = getManagerUsername(project.getManagerId());
         String managerName     = project.getManagerName();
         String projectName     = project.getName();
@@ -286,6 +291,7 @@ public class ProjectServiceImpl implements ProjectService {
         projectRepository.delete(project);
         log.info("Project deleted: id={}", projectId);
 
+ 
         notificationProducer.send("contract-events", NotificationEvent.builder()
                 .recipientEmail(managerUsername)
                 .recipientName(managerName)

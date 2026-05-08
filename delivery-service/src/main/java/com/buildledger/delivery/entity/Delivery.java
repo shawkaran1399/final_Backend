@@ -58,5 +58,8 @@ public class Delivery {
     @LastModifiedDate
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Column(name = "last_notified_date")
+    private LocalDate lastNotifiedDate;
 }
 

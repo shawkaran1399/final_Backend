@@ -26,15 +26,15 @@ public class NotificationService {
         log.info("Processing notification event: type={}, recipient={}", event.getType(), event.getRecipientEmail());
 
         Notification notification = Notification.builder()
-            .recipientEmail(event.getRecipientEmail())
-            .recipientName(event.getRecipientName())
-            .type(event.getType())
-            .subject(event.getSubject())
-            .message(event.getMessage())
-            .referenceId(event.getReferenceId())
-            .referenceType(event.getReferenceType())
-            .delivered(false)
-            .build();
+                .recipientEmail(event.getRecipientEmail())
+                .recipientName(event.getRecipientName())
+                .type(event.getType())
+                .subject(event.getSubject())
+                .message(event.getMessage())
+                .referenceId(event.getReferenceId())
+                .referenceType(event.getReferenceType())
+                .delivered(false)
+                .build();
 
         Notification saved = notificationRepository.save(notification);
 
@@ -51,7 +51,7 @@ public class NotificationService {
         log.info("Subject: {}", notification.getSubject());
         log.info("Message: {}", notification.getMessage());
         log.info("Type: {} | Ref: {} [{}]", notification.getType(),
-            notification.getReferenceId(), notification.getReferenceType());
+                notification.getReferenceId(), notification.getReferenceType());
         log.info("==============================");
 
         notification.setDelivered(true);
@@ -66,5 +66,18 @@ public class NotificationService {
 
     @Transactional(readOnly = true)
     public List<Notification> getPending() { return notificationRepository.findByDelivered(false); }
+
+    @Transactional
+    public Notification markAsRead(Long id) {
+        Notification notification = notificationRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Notification not found"));
+        notification.setRead(true);
+        return notificationRepository.save(notification);
+    }
+
+    @Transactional(readOnly = true)
+    public long getUnreadCount(String email) {
+        return notificationRepository.countByRecipientEmailAndRead(email, false);
+    }
 }
 

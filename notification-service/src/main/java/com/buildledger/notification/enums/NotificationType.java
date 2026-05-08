@@ -1,4 +1,5 @@
 package com.buildledger.notification.enums;
+ 
 public enum NotificationType
 {   //IAM
     USER_CREATED,
@@ -6,7 +7,6 @@ public enum NotificationType
     USER_STATUS_CHANGED,
     USER_DELETED,
 
-    //service
     SERVICE_CREATED,
     SERVICE_UPDATED,
     SERVICE_STARTED,
@@ -14,7 +14,7 @@ public enum NotificationType
     SERVICE_VERIFIED,
     SERVICE_DELETED,
 
-    //vendor
+ 
     VENDOR_REGISTERED,
     VENDOR_ACTIVATED,
     VENDOR_SUSPENDED,
@@ -26,52 +26,65 @@ public enum NotificationType
     VENDOR_DOCUMENT_APPROVED,
     VENDOR_DOCUMENT_REJECTED,
 
-    //contract
-    CONTRACT_CREATED,                // new contract in DRAFT
-    CONTRACT_UPDATED,                // contract edited (only in DRAFT)
-    CONTRACT_TERM_ADDED,             // a term added to DRAFT contract
-    CONTRACT_TERM_EDITED,            // a term edited on DRAFT contract
-    CONTRACT_TERM_DELETED,           // a term deleted from DRAFT contract
-    CONTRACT_ACTIVATED,              // DRAFT → ACTIVE
-    CONTRACT_COMPLETED,              // ACTIVE → COMPLETED
-    CONTRACT_TERMINATED,             // ACTIVE → TERMINATED
-    CONTRACT_EXPIRED,                // ACTIVE → EXPIRED (manual or scheduler)
+ 
+    CONTRACT_CREATED,
+    CONTRACT_UPDATED,
+    CONTRACT_TERM_ADDED,
+    CONTRACT_TERM_EDITED,
+    CONTRACT_TERM_DELETED,
+    CONTRACT_ACTIVATED,
+    CONTRACT_COMPLETED,
+    CONTRACT_TERMINATED,
+    CONTRACT_EXPIRED,
     CONTRACT_DELETED,
-
-    //invoice
+ 
     INVOICE_APPROVED,
     INVOICE_REJECTED,
     INVOICE_SUBMITTED,
     INVOICE_PAID,
     INVOICE_DELETED,
+  
+    SCHEDULER_INVOICE_DUE_REMINDER,
+    SCHEDULER_INVOICE_OVERDUE_ALERT,
 
-    //payment
+ 
     PAYMENT_COMPLETED,
     PAYMENT_INITIATED,
     PAYMENT_PROCESSING,
     PAYMENT_FAILED,
 
-    //delivery
     DELIVERY_CREATED,
     DELIVERY_UPDATED,
     DELIVERY_MARKED_DELIVERED,
     DELIVERY_DELETED,
     DELIVERY_ACCEPTED,
     DELIVERY_REJECTED,
+    DELIVERY_DELAYED,                    // ← ADDED
 
-    //audit
+    // Scheduler
+    SCHEDULER_DELIVERY_OVERDUE_ALERT,
+    SCHEDULER_SERVICE_OVERDUE_ALERT,
+
+    // Audit
     AUDIT_SCHEDULED,
 
-    //compliance
+    // Compliance
     COMPLIANCE_RECORD_CREATED,
     COMPLIANCE_RECORD_UPDATED,
     COMPLIANCE_REVIEW_STARTED,
+    COMPLIANCE_CHECK_PASSED,             // ← ADDED
+    COMPLIANCE_CHECK_FAILED,             // ← ADDED
+    COMPLIANCE_STATUS_CHANGED,           // ← ADDED
+    COMPLIANCE_FAILED,                   // ← ADDED
+ 
     COMPLIANCE_PASSED,
     COMPLIANCE_WAIVED,
     COMPLIANCE_REINITIATED,
     COMPLIANCE_RECORD_DELETED,
+    COMPLIANCE_REVIEW_DUE,               // ← UNCOMMENTED
+    COMPLIANCE_OVERDUE,                  // ← UNCOMMENTED
 
-    //project
+ 
     PROJECT_CREATED,
     PROJECT_UPDATED,
     PROJECT_STATUS_CHANGED,
@@ -81,9 +94,13 @@ public enum NotificationType
     PROJECT_COMPLETED,
     PROJECT_CANCELLED,
     PROJECT_DELETED,
+ 
     PROJECT_MANAGER_REASSIGNED,  // ← ADD
 //    COMPLIANCE_REVIEW_DUE,
 //    COMPLIANCE_OVERDUE,
     GENERAL
 }
+ 
 
+    GENERAL
+}
