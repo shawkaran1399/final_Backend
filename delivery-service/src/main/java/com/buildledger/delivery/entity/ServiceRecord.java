@@ -24,6 +24,11 @@ public class ServiceRecord {
     /** Contract ID validated via Feign Client against contract-service */
     @Column(name = "contract_id", nullable = false)
     private Long contractId;
+    @Column(name = "vendor_username", length = 100)
+    private String vendorUsername;    // ← vendor who owns the contract
+
+    @Column(name = "manager_username", length = 100)
+    private String managerUsername;   // ← PM of the contract
 
     @Column(name = "description", nullable = false, columnDefinition = "TEXT")
     private String description;
@@ -46,5 +51,8 @@ public class ServiceRecord {
     @LastModifiedDate
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Column(name = "last_notified_date")
+    private LocalDate lastNotifiedDate;
 }
 

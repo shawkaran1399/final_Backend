@@ -6,6 +6,8 @@ import com.buildledger.iam.dto.response.UserResponseDTO;
 import com.buildledger.iam.entity.User;
 import com.buildledger.iam.enums.Role;
 import com.buildledger.iam.enums.UserStatus;
+import com.buildledger.iam.event.NotificationEvent;
+import com.buildledger.iam.event.NotificationProducer;
 import com.buildledger.iam.exception.BadRequestException;
 import com.buildledger.iam.exception.DuplicateResourceException;
 import com.buildledger.iam.exception.ResourceNotFoundException;
@@ -28,16 +30,16 @@ public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final NotificationProducer notificationProducer;  // ← ADD
 
     @Override
     public UserResponseDTO createUser(CreateUserRequestDTO request) {
         log.info("Creating user: {} with role: {}", request.getUsername(), request.getRole());
 
-        // ADMIN and VENDOR are privileged roles – cannot be created via this endpoint
         if (request.getRole() == Role.ADMIN || request.getRole() == Role.VENDOR) {
             throw new BadRequestException(
-                "Role " + request.getRole() + " cannot be assigned through this endpoint. " +
-                "ADMIN is provisioned at bootstrap; VENDOR is auto-assigned after document approval."
+                    "Role " + request.getRole() + " cannot be assigned through this endpoint. " +
+                            "ADMIN is provisioned at bootstrap; VENDOR is auto-assigned after document approval."
             );
         }
 
@@ -49,17 +51,32 @@ public class UserServiceImpl implements UserService {
         }
 
         User user = User.builder()
-            .username(request.getUsername())
-            .password(passwordEncoder.encode(request.getPassword()))
-            .name(request.getName())
-            .role(request.getRole())
-            .email(request.getEmail())
-            .phone(request.getPhone())
-            .status(UserStatus.ACTIVE)
-            .build();
+                .username(request.getUsername())
+                .password(passwordEncoder.encode(request.getPassword()))
+                .name(request.getName())
+                .role(request.getRole())
+                .email(request.getEmail())
+                .phone(request.getPhone())
+                .status(UserStatus.ACTIVE)
+                .build();
 
         User saved = userRepository.save(user);
         log.info("User created: id={}, username={}, role={}", saved.getUserId(), saved.getUsername(), saved.getRole());
+
+        // ← NEW: Notify the created user
+        notificationProducer.send("iam-events", NotificationEvent.builder()
+                .recipientEmail(saved.getUsername())  // username — matches auth.getName()
+                .recipientName(saved.getName())
+                .type("USER_CREATED")
+                .subject("Your BuildLedger account has been created")
+                .message("Dear " + saved.getName() + ", your account has been created successfully. "
+                        + "Username: " + saved.getUsername()
+                        + ", Role: " + saved.getRole()
+                        + ". You can now log in to BuildLedger.")
+                .referenceId(String.valueOf(saved.getUserId()))
+                .referenceType("USER")
+                .build());
+
         return mapToResponse(saved);
     }
 
@@ -73,8 +90,8 @@ public class UserServiceImpl implements UserService {
     @Transactional(readOnly = true)
     public UserResponseDTO getUserByUsername(String username) {
         return mapToResponse(
-            userRepository.findByUsername(username)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "username", username))
+                userRepository.findByUsername(username)
+                        .orElseThrow(() -> new ResourceNotFoundException("User", "username", username))
         );
     }
 
@@ -94,6 +111,10 @@ public class UserServiceImpl implements UserService {
     public UserResponseDTO updateUser(Long userId, UpdateUserRequestDTO request) {
         User user = findById(userId);
 
+        boolean statusChanged = request.getStatus() != null
+                && request.getStatus() != user.getStatus();
+        UserStatus oldStatus = user.getStatus();
+
         if (request.getName() != null) user.setName(request.getName());
         if (request.getEmail() != null) {
             if (!request.getEmail().equalsIgnoreCase(user.getEmail())
@@ -105,30 +126,69 @@ public class UserServiceImpl implements UserService {
         if (request.getPhone() != null) user.setPhone(request.getPhone());
         if (request.getStatus() != null) user.setStatus(request.getStatus());
 
-        return mapToResponse(userRepository.save(user));
+        UserResponseDTO result = mapToResponse(userRepository.save(user));
+
+        // ← NEW: USER_UPDATED — fires on every update
+        notificationProducer.send("iam-events", NotificationEvent.builder()
+                .recipientEmail(user.getUsername())  // username — matches auth.getName()
+                .recipientName(user.getName())
+                .type("USER_UPDATED")
+                .subject("Your account details have been updated")
+                .message("Dear " + user.getName() + ", your account details have been updated by the admin.")
+                .referenceId(String.valueOf(userId))
+                .referenceType("USER")
+                .build());
+
+        // ← NEW: USER_STATUS_CHANGED — fires only when status specifically changed
+        if (statusChanged) {
+            notificationProducer.send("iam-events", NotificationEvent.builder()
+                    .recipientEmail(user.getUsername())
+                    .recipientName(user.getName())
+                    .type("USER_STATUS_CHANGED")
+                    .subject("Your account status has changed")
+                    .message("Dear " + user.getName() + ", your account status has been changed from "
+                            + oldStatus + " to " + request.getStatus() + ".")
+                    .referenceId(String.valueOf(userId))
+                    .referenceType("USER")
+                    .build());
+        }
+
+        return result;
     }
 
     @Override
     public void deleteUser(Long userId) {
-        userRepository.delete(findById(userId));
+        User user = findById(userId);
+        userRepository.delete(user);
         log.info("User deleted: id={}", userId);
+
+        // ← NEW: USER_DELETED
+        notificationProducer.send("iam-events", NotificationEvent.builder()
+                .recipientEmail(user.getUsername())
+                .recipientName(user.getName())
+                .type("USER_DELETED")
+                .subject("Your account has been deleted")
+                .message("Dear " + user.getName() + ", your BuildLedger account has been permanently deleted. "
+                        + "Please contact support if this was unexpected.")
+                .referenceId(String.valueOf(userId))
+                .referenceType("USER")
+                .build());
     }
 
     @Override
     public UserResponseDTO createVendorUser(String username, String encodedPassword,
-                                             String name, String email, String phone) {
-        // Ensure username uniqueness
+                                            String name, String email, String phone) {
         String finalUsername = ensureUniqueUsername(username);
 
         User user = User.builder()
-            .username(finalUsername)
-            .password(encodedPassword)
-            .name(name)
-            .role(Role.VENDOR)
-            .email(userRepository.existsByEmail(email) ? null : email)
-            .phone(phone)
-            .status(UserStatus.ACTIVE)
-            .build();
+                .username(finalUsername)
+                .password(encodedPassword)
+                .name(name)
+                .role(Role.VENDOR)
+                .email(userRepository.existsByEmail(email) ? null : email)
+                .phone(phone)
+                .status(UserStatus.ACTIVE)
+                .build();
 
         User saved = userRepository.save(user);
         log.info("Vendor user created: id={}, username={}", saved.getUserId(), saved.getUsername());
@@ -144,21 +204,20 @@ public class UserServiceImpl implements UserService {
 
     private User findById(Long userId) {
         return userRepository.findById(userId)
-            .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
     }
 
     private UserResponseDTO mapToResponse(User user) {
         return UserResponseDTO.builder()
-            .userId(user.getUserId())
-            .username(user.getUsername())
-            .name(user.getName())
-            .role(user.getRole())
-            .email(user.getEmail())
-            .phone(user.getPhone())
-            .status(user.getStatus())
-            .createdAt(user.getCreatedAt())
-            .updatedAt(user.getUpdatedAt())
-            .build();
+                .userId(user.getUserId())
+                .username(user.getUsername())
+                .name(user.getName())
+                .role(user.getRole())
+                .email(user.getEmail())
+                .phone(user.getPhone())
+                .status(user.getStatus())
+                .createdAt(user.getCreatedAt())
+                .updatedAt(user.getUpdatedAt())
+                .build();
     }
 }
-

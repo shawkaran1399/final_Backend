@@ -6,7 +6,7 @@ import com.buildledger.compliance.enums.AuditStatus;
 import java.util.List;
 
 public interface AuditService {
-    AuditResponseDTO createAudit(AuditRequestDTO request);
+    AuditResponseDTO createAudit(AuditRequestDTO request, Long requestUserId, String requestUserRole);
     AuditResponseDTO getAuditById(Long auditId);
     List<AuditResponseDTO> getAllAudits();
     List<AuditResponseDTO> getAuditsByOfficer(Long officerId);

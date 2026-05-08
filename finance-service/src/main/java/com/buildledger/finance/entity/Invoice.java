@@ -28,6 +28,9 @@ public class Invoice {
     @Column(name = "vendor_name", length = 100)
     private String vendorName;
 
+    @Column(name = "vendor_username", length = 150)
+    private String vendorUsername;   // ← ADD
+
     @Column(name = "amount", nullable = false, precision = 18, scale = 2)
     private BigDecimal amount;
 
@@ -50,7 +53,8 @@ public class Invoice {
 
     @CreatedDate @Column(name = "created_at", updatable = false) private LocalDateTime createdAt;
     @LastModifiedDate @Column(name = "updated_at") private LocalDateTime updatedAt;
-
+    @Column(name = "last_notified_date")
+    private LocalDate lastNotifiedDate;
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<Payment> payments;
 }

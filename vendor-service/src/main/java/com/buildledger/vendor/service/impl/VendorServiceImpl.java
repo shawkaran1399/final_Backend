@@ -15,7 +15,12 @@ import com.buildledger.vendor.enums.VerificationStatus;
 import com.buildledger.vendor.exception.BadRequestException;
 import com.buildledger.vendor.exception.DuplicateResourceException;
 import com.buildledger.vendor.exception.ResourceNotFoundException;
+import com.buildledger.vendor.exception.VendorException;
+import com.buildledger.vendor.feign.ContractServiceClient;
+import com.buildledger.vendor.feign.ContractServiceFallback;
 import com.buildledger.vendor.feign.IamServiceClient;
+import feign.FeignException;
+import org.springframework.http.HttpStatus;
 import com.buildledger.vendor.repository.VendorDocumentRepository;
 import com.buildledger.vendor.repository.VendorRepository;
 import com.buildledger.vendor.service.VendorService;
@@ -45,6 +50,7 @@ public class VendorServiceImpl implements VendorService {
     private final VendorDocumentRepository vendorDocumentRepository;
     private final LocalFileStorageService fileStorageService;
     private final IamServiceClient iamServiceClient;
+    private final ContractServiceClient contractServiceClient;
     private final NotificationProducer notificationProducer;
 
     @Value("${app.document.max-size-mb:10}")
@@ -75,7 +81,7 @@ public class VendorServiceImpl implements VendorService {
         VendorResponseDTO result = mapToResponse(vendorRepository.save(vendor));
 
         notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(request.getEmail())
+                .recipientEmail(request.getUsername())
                 .recipientName(request.getName())
                 .type("VENDOR_REGISTERED")
                 .subject("Welcome to BuildLedger — Registration Received")
@@ -132,7 +138,7 @@ public class VendorServiceImpl implements VendorService {
         VendorResponseDTO result = mapToResponse(vendorRepository.save(vendor));
 
         notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getEmail())
+                .recipientEmail(vendor.getUsername())
                 .recipientName(vendor.getName())
                 .type("VENDOR_PROFILE_UPDATED")
                 .subject("Your vendor profile has been updated")
@@ -147,13 +153,21 @@ public class VendorServiceImpl implements VendorService {
     @Override
     public void deleteVendor(Long vendorId) {
         Vendor vendor = findVendorById(vendorId);
+
+        if (vendor.getStatus() == VendorStatus.ACTIVE) {
+            checkNoActiveContracts(vendor);
+        }
+
         vendorDocumentRepository.findByVendorVendorId(vendorId)
-                .ifPresent(doc -> fileStorageService.delete(doc.getFileUri()));
+                .ifPresent(doc -> {
+                    fileStorageService.delete(doc.getFileUri());
+                    vendorDocumentRepository.delete(doc);
+                });
         vendorRepository.delete(vendor);
-        log.info("Vendor deleted: id={}", vendorId);
+        log.info("Vendor deleted: id={}, status={}", vendorId, vendor.getStatus());
 
         notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getEmail())
+                .recipientEmail(vendor.getUsername())
                 .recipientName(vendor.getName())
                 .type("VENDOR_DELETED")
                 .subject("Your vendor account has been deleted")
@@ -162,6 +176,31 @@ public class VendorServiceImpl implements VendorService {
                 .referenceId(String.valueOf(vendorId))
                 .referenceType("VENDOR")
                 .build());
+    }
+
+    private void checkNoActiveContracts(Vendor vendor) {
+        ApiResponseDTO<java.util.List<java.util.Map<String, Object>>> res;
+        try {
+            res = contractServiceClient.getContractsByVendor(vendor.getVendorId());
+        } catch (FeignException.NotFound e) {
+            return; // vendor has no contracts — allow deletion
+        } catch (Exception e) {
+            log.warn("Contract Service unreachable while checking contracts for vendor {}. Proceeding with deletion.",
+                    vendor.getVendorId());
+            return; // cannot confirm contracts exist — allow deletion
+        }
+        if (ContractServiceFallback.MARKER.equals(res.getMessage())) {
+            log.warn("Contract Service fallback triggered for vendor {}. Proceeding with deletion.",
+                    vendor.getVendorId());
+            return; // cannot confirm contracts exist — allow deletion
+        }
+        if (res.isSuccess() && res.getData() != null && !res.getData().isEmpty()) {
+            throw new VendorException(
+                "Cannot delete vendor #" + vendor.getVendorId() + " (" + vendor.getName() + "). " +
+                "This vendor is allocated to " + res.getData().size() + " contract(s). " +
+                "Please reassign or close all contracts before deleting an ACTIVE vendor.",
+                HttpStatus.CONFLICT);
+        }
     }
 
     // ── Document Upload ───────────────────────────────────────────────────────
@@ -199,7 +238,7 @@ public class VendorServiceImpl implements VendorService {
         log.info("Document saved: id={}", saved.getDocumentId());
 
         notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getEmail())
+                .recipientEmail(vendor.getUsername())
                 .recipientName(vendor.getName())
                 .type("VENDOR_DOCUMENT_PENDING")
                 .subject("Document uploaded — pending review")
@@ -275,7 +314,7 @@ public class VendorServiceImpl implements VendorService {
         VendorDocumentResponseDTO result = mapDocumentToResponse(vendorDocumentRepository.save(existing));
 
         notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getEmail())
+                .recipientEmail(vendor.getUsername())
                 .recipientName(vendor.getName())
                 .type("VENDOR_DOCUMENT_REPLACED")
                 .subject("Document replaced — pending review")
@@ -312,7 +351,7 @@ public class VendorServiceImpl implements VendorService {
 
         if (status == VerificationStatus.APPROVED) {
             notificationProducer.send("vendor-events", NotificationEvent.builder()
-                    .recipientEmail(document.getVendor().getEmail())
+                    .recipientEmail(document.getVendor().getUsername())
                     .recipientName(document.getVendor().getName())
                     .type("VENDOR_DOCUMENT_APPROVED")
                     .subject("Your document has been approved")
@@ -326,7 +365,7 @@ public class VendorServiceImpl implements VendorService {
 
         if (status == VerificationStatus.REJECTED) {
             notificationProducer.send("vendor-events", NotificationEvent.builder()
-                    .recipientEmail(document.getVendor().getEmail())
+                    .recipientEmail(document.getVendor().getUsername())
                     .recipientName(document.getVendor().getName())
                     .type("VENDOR_DOCUMENT_REJECTED")
                     .subject("Your document has been rejected")
@@ -356,7 +395,7 @@ public class VendorServiceImpl implements VendorService {
                 createVendorUserAccount(vendor);
 
                 notificationProducer.send("vendor-events", NotificationEvent.builder()
-                        .recipientEmail(vendor.getEmail())
+                        .recipientEmail(vendor.getUsername())
                         .recipientName(vendor.getName())
                         .type("VENDOR_ACTIVATED")
                         .subject("Your vendor account is now ACTIVE!")
@@ -373,7 +412,7 @@ public class VendorServiceImpl implements VendorService {
                 log.info("Vendor {} SUSPENDED due to rejected document", vendor.getVendorId());
 
                 notificationProducer.send("vendor-events", NotificationEvent.builder()
-                        .recipientEmail(vendor.getEmail())
+                        .recipientEmail(vendor.getUsername())
                         .recipientName(vendor.getName())
                         .type("VENDOR_SUSPENDED")
                         .subject("Your vendor account has been suspended")

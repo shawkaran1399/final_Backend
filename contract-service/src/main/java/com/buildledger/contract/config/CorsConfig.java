@@ -13,7 +13,7 @@ public class CorsConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowCredentials(true);
         config.setAllowedOriginPatterns(List.of("*"));
-        config.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "X-Requested-With", "X-User-Id", "X-Username", "X-User-Role"));
+        config.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "X-Requested-With", "X-User-Id", "X-Username", "X-User-Role", "X-Vendor-Id"));
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setExposedHeaders(Arrays.asList("Authorization", "Content-Disposition"));
         config.setMaxAge(3600L);

@@ -8,5 +8,8 @@ import java.util.Map;
 public interface DeliveryServiceClient {
     @GetMapping("/api/deliveries")
     Map<String, Object> getAllDeliveries();
+
+    @GetMapping("/api/services")
+    Map<String, Object> getAllServices();
 }
 

@@ -34,8 +34,13 @@ public class AuditServiceImpl implements AuditService {
     private final NotificationProducer notificationProducer;  // ADD THIS
 
     @Override
-    public AuditResponseDTO createAudit(AuditRequestDTO request) {
+    public AuditResponseDTO createAudit(AuditRequestDTO request, Long requestUserId, String requestUserRole) {
         log.info("Creating audit for officer {}", request.getComplianceOfficerId());
+        if (!request.getComplianceOfficerId().equals(requestUserId) && !"ADMIN".equals(requestUserRole)) {
+            throw new BadRequestException(
+                "Officer ID in request (" + request.getComplianceOfficerId() + ") does not match " +
+                "the authenticated user (" + requestUserId + "). Only ADMIN can create audits on behalf of others.");
+        }
         Map<String, Object> officer = validateComplianceOfficer(request.getComplianceOfficerId());
 
         Audit audit = Audit.builder()
@@ -116,6 +121,14 @@ public class AuditServiceImpl implements AuditService {
                 ". Lifecycle: SCHEDULED→IN_PROGRESS|CANCELLED, IN_PROGRESS→PENDING_REVIEW|CANCELLED, PENDING_REVIEW→COMPLETED|CANCELLED.");
         }
 
+        if (newStatus == AuditStatus.COMPLETED) {
+            String effectiveFindings = (findings != null && !findings.isBlank()) ? findings : audit.getFindings();
+            if (effectiveFindings == null || effectiveFindings.isBlank()) {
+                throw new BadRequestException(
+                    "Findings must be recorded before marking an audit as COMPLETED.");
+            }
+        }
+
         audit.setStatus(newStatus);
         if (newStatus == AuditStatus.IN_PROGRESS && audit.getAuditDate() == null) {
             audit.setAuditDate(LocalDate.now());
@@ -130,9 +143,9 @@ public class AuditServiceImpl implements AuditService {
     @Override
     public void deleteAudit(Long auditId) {
         Audit audit = findById(auditId);
-        if (audit.getStatus() != AuditStatus.SCHEDULED && audit.getStatus() != AuditStatus.CANCELLED) {
+        if (audit.getStatus() != AuditStatus.SCHEDULED) {
             throw new BadRequestException(
-                "Only SCHEDULED or CANCELLED audits can be deleted. Current status: " + audit.getStatus());
+                "Only SCHEDULED (never started) audits can be deleted. Current status: " + audit.getStatus());
         }
         auditRepository.delete(audit);
         log.info("Audit deleted: id={}", auditId);
