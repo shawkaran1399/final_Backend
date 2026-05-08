@@ -5,25 +5,25 @@ import com.buildledger.delivery.dto.response.ApiResponseDTO;
 import com.buildledger.delivery.dto.response.ServiceResponseDTO;
 import com.buildledger.delivery.entity.ServiceRecord;
 import com.buildledger.delivery.enums.ServiceStatus;
-import com.buildledger.delivery.event.NotificationEvent;
-import com.buildledger.delivery.event.NotificationProducer;
 import com.buildledger.delivery.exception.BadRequestException;
 import com.buildledger.delivery.exception.ResourceNotFoundException;
 import com.buildledger.delivery.exception.ServiceUnavailableException;
-import com.buildledger.delivery.feign.ComplianceServiceClient;
-import com.buildledger.delivery.feign.ComplianceServiceFallback;
 import com.buildledger.delivery.feign.ContractServiceClient;
 import com.buildledger.delivery.feign.ContractServiceFallback;
+import com.buildledger.delivery.feign.VendorServiceClient;
+import com.buildledger.delivery.feign.VendorServiceFallback;
 import com.buildledger.delivery.repository.ServiceRecordRepository;
 import com.buildledger.delivery.service.ServiceTrackingService;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -36,71 +36,60 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
 
     private final ServiceRecordRepository serviceRecordRepository;
     private final ContractServiceClient contractServiceClient;
-    private final ComplianceServiceClient complianceServiceClient;
-    private final NotificationProducer notificationProducer;
+    private final VendorServiceClient vendorServiceClient;
 
+    @Override
     public ServiceResponseDTO createService(ServiceRequestDTO request) {
         log.info("Creating service record for contract {}", request.getContractId());
 
-        // ← get contract data for vendor and manager info
-        Map<String, Object> contractData = validateAndGetContract(request.getContractId());
-
-        String vendorUsername  = String.valueOf(contractData.getOrDefault("vendorUsername", ""));
-        String vendorName      = String.valueOf(contractData.getOrDefault("vendorName", "Vendor"));
-        String managerUsername = String.valueOf(contractData.getOrDefault("managerUsername", ""));
+        Map<String, Object> contractData = validateContractActive(request.getContractId());
+        validateServiceDateInWindow(request.getCompletionDate(), contractData);
+        validateVendorOwnership(contractData);
 
         ServiceRecord record = ServiceRecord.builder()
                 .contractId(request.getContractId())
                 .description(request.getDescription())
                 .completionDate(request.getCompletionDate())
                 .remarks(request.getRemarks())
-                .vendorUsername(vendorUsername)    // ← store
-                .managerUsername(managerUsername)  // ← store
+                .vendorUsername(String.valueOf(contractData.getOrDefault("vendorUsername", "")))
+                .managerUsername(String.valueOf(contractData.getOrDefault("managerUsername", "")))
                 .build();
 
-        ServiceResponseDTO result = mapToResponse(serviceRecordRepository.save(record));
-
-        // ← SERVICE_CREATED → notify vendor
-        notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail(vendorUsername)
-                .recipientName(vendorName)
-                .type("SERVICE_CREATED")
-                .subject("New service record created for your contract #" + request.getContractId())
-                .message("Dear " + vendorName + ", a new service record has been created for your contract #"
-                        + request.getContractId()
-                        + ". Description: " + request.getDescription()
-                        + ". Status: PENDING.")
-                .referenceId(String.valueOf(result.getServiceId()))
-                .referenceType("SERVICE")
-                .build());
-
-        return result;
+        return mapToResponse(serviceRecordRepository.save(record));
     }
 
+    @Override
     @Transactional(readOnly = true)
     public ServiceResponseDTO getServiceById(Long serviceId) {
         return mapToResponse(findById(serviceId));
     }
 
+    @Override
     @Transactional(readOnly = true)
     public List<ServiceResponseDTO> getAllServices() {
         return serviceRecordRepository.findAll().stream()
-                .map(this::mapToResponse).collect(Collectors.toList());
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
     }
 
+    @Override
     @Transactional(readOnly = true)
     public List<ServiceResponseDTO> getServicesByContract(Long contractId) {
-        validateAndGetContract(contractId);
+        validateContractExists(contractId);
         return serviceRecordRepository.findByContractId(contractId).stream()
-                .map(this::mapToResponse).collect(Collectors.toList());
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
     }
 
+    @Override
     @Transactional(readOnly = true)
     public List<ServiceResponseDTO> getServicesByStatus(ServiceStatus status) {
         return serviceRecordRepository.findByStatus(status).stream()
-                .map(this::mapToResponse).collect(Collectors.toList());
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
     }
 
+    @Override
     public ServiceResponseDTO updateServiceStatus(Long serviceId, ServiceStatus nextStatus) {
         ServiceRecord service = findById(serviceId);
         ServiceStatus current = service.getStatus();
@@ -110,158 +99,75 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         if (!current.canTransitionTo(nextStatus)) {
             throw new BadRequestException(
                     "Invalid service status transition from " + current + " to " + nextStatus +
-                            ". Lifecycle must follow: PENDING → IN_PROGRESS → COMPLETED → VERIFIED or UNVERIFIED.");
+                    ". Lifecycle must follow: PENDING → IN_PROGRESS → COMPLETED → VERIFIED/UNVERIFIED.");
         }
 
-        // Role-based validation
         if (nextStatus == ServiceStatus.IN_PROGRESS || nextStatus == ServiceStatus.COMPLETED) {
             requireRole("VENDOR", "ADMIN");
         }
-        if (nextStatus == ServiceStatus.VERIFIED) {
+
+        if (nextStatus == ServiceStatus.VERIFIED || nextStatus == ServiceStatus.UNVERIFIED) {
             requireRole("PROJECT_MANAGER", "ADMIN");
-            requireCompliancePassed(service.getServiceId(), "SERVICE_CHECK", "service");
-        }
-        if (nextStatus == ServiceStatus.UNVERIFIED) {
-            requireRole("PROJECT_MANAGER", "ADMIN");
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null) service.setManagerUsername(auth.getName());
         }
 
         service.setStatus(nextStatus);
-        ServiceResponseDTO result = mapToResponse(serviceRecordRepository.save(service));
-
-        if (nextStatus == ServiceStatus.IN_PROGRESS) {
-            // Vendor started → notify vendor confirmation
-            notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail(service.getVendorUsername())
-                    .recipientName("Vendor")
-                    .type("SERVICE_STARTED")
-                    .subject("Service #" + serviceId + " has started")
-                    .message("Service #" + serviceId + " for contract #" + service.getContractId()
-                            + " is now IN PROGRESS."
-                            + " Description: " + service.getDescription())
-                    .referenceId(String.valueOf(serviceId))
-                    .referenceType("SERVICE")
-                    .build());
-
-        } else if (nextStatus == ServiceStatus.COMPLETED) {
-            // Vendor completed → notify PM to verify
-            notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail(service.getManagerUsername())
-                    .recipientName("Project Manager")
-                    .type("SERVICE_COMPLETED")
-                    .subject("Service #" + serviceId + " completed — verification required")
-                    .message("Service #" + serviceId + " for contract #" + service.getContractId()
-                            + " has been marked as COMPLETED by the vendor."
-                            + " Description: " + service.getDescription()
-                            + ". Please review and VERIFY.")
-                    .referenceId(String.valueOf(serviceId))
-                    .referenceType("SERVICE")
-                    .build());
-
-        } else if (nextStatus == ServiceStatus.VERIFIED) {
-            // PM verified → notify vendor
-            notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail(service.getVendorUsername())
-                    .recipientName("Vendor")
-                    .type("SERVICE_VERIFIED")
-                    .subject("Service #" + serviceId + " has been verified")
-                    .message("Service #" + serviceId + " for contract #" + service.getContractId()
-                            + " has been VERIFIED by the project manager."
-                            + " Description: " + service.getDescription())
-                    .referenceId(String.valueOf(serviceId))
-                    .referenceType("SERVICE")
-                    .build());
-
-        } else if (nextStatus == ServiceStatus.UNVERIFIED) {
-            // PM unverified → notify vendor
-            notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail(service.getVendorUsername())
-                    .recipientName("Vendor")
-                    .type("SERVICE_UNVERIFIED")
-                    .subject("Service #" + serviceId + " has been marked as unverified")
-                    .message("Service #" + serviceId + " for contract #" + service.getContractId()
-                            + " has been marked as UNVERIFIED by the project manager."
-                            + " Please check with your project manager.")
-                    .referenceId(String.valueOf(serviceId))
-                    .referenceType("SERVICE")
-                    .build());
-        }
-
-        return result;
+        return mapToResponse(serviceRecordRepository.save(service));
     }
 
+    @Override
     public ServiceResponseDTO updateService(Long serviceId, ServiceRequestDTO request) {
         ServiceRecord service = findById(serviceId);
+
         if (service.getStatus() != ServiceStatus.PENDING) {
             throw new BadRequestException("Service details can only be updated when status is PENDING.");
         }
+
+        Map<String, Object> contractData = null;
+
         if (request.getContractId() != null) {
-            validateAndGetContract(request.getContractId());
+            contractData = validateContractActive(request.getContractId());
             service.setContractId(request.getContractId());
         }
+
+        if (request.getCompletionDate() != null) {
+            if (contractData == null) {
+                contractData = validateContractActive(service.getContractId());
+            }
+            validateServiceDateInWindow(request.getCompletionDate(), contractData);
+            service.setCompletionDate(request.getCompletionDate());
+        }
+
         if (request.getDescription() != null) service.setDescription(request.getDescription());
-        if (request.getCompletionDate() != null) service.setCompletionDate(request.getCompletionDate());
-        if (request.getRemarks() != null) service.setRemarks(request.getRemarks());
+        if (request.getRemarks() != null)     service.setRemarks(request.getRemarks());
 
-        ServiceResponseDTO result = mapToResponse(serviceRecordRepository.save(service));
-
-        // ← SERVICE_UPDATED → notify vendor
-        notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail(service.getVendorUsername())
-                .recipientName("Vendor")
-                .type("SERVICE_UPDATED")
-                .subject("Service #" + serviceId + " has been updated")
-                .message("Service #" + serviceId + " for contract #" + service.getContractId()
-                        + " has been updated."
-                        + " Description: " + service.getDescription())
-                .referenceId(String.valueOf(serviceId))
-                .referenceType("SERVICE")
-                .build());
-
-        return result;
+        return mapToResponse(serviceRecordRepository.save(service));
     }
 
+    @Override
     public void deleteService(Long serviceId) {
         ServiceRecord service = findById(serviceId);
         if (service.getStatus() != ServiceStatus.PENDING) {
             throw new BadRequestException("Only PENDING service records can be deleted.");
         }
-
-        String vendorUsername = service.getVendorUsername();
-        String contractId     = String.valueOf(service.getContractId());
-        String description    = service.getDescription();
-
         serviceRecordRepository.delete(service);
-
-        // ← SERVICE_DELETED → notify vendor
-        notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail(vendorUsername)
-                .recipientName("Vendor")
-                .type("SERVICE_DELETED")
-                .subject("Service #" + serviceId + " has been deleted")
-                .message("Service #" + serviceId + " for contract #" + contractId
-                        + " has been permanently deleted."
-                        + " Description: " + description)
-                .referenceId(String.valueOf(serviceId))
-                .referenceType("SERVICE")
-                .build());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    // ← UPDATED: returns contract data instead of void
-    private Map<String, Object> validateAndGetContract(Long contractId) {
+    private Map<String, Object> fetchContract(Long contractId) {
         ApiResponseDTO<Map<String, Object>> response;
         try {
             response = contractServiceClient.getContractById(contractId);
         } catch (FeignException.NotFound e) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
         } catch (Exception e) {
-            throw new ServiceUnavailableException(
-                    "Contract Service is currently unavailable. Please try again later.");
+            throw new ServiceUnavailableException("Contract Service is currently unavailable. Please try again later.");
         }
+
         if (ContractServiceFallback.MARKER.equals(response.getMessage())) {
-            throw new ServiceUnavailableException(
-                    "Contract Service is currently unavailable. Please try again later.");
+            throw new ServiceUnavailableException("Contract Service is currently unavailable. Please try again later.");
         }
         if (!response.isSuccess() || response.getData() == null) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
@@ -269,38 +175,91 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         return response.getData();
     }
 
-    private void requireRole(String... roles) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null)
-            throw new org.springframework.security.access.AccessDeniedException("Not authenticated");
-        boolean hasRole = auth.getAuthorities().stream()
-                .anyMatch(a -> {
-                    for (String r : roles) if (a.getAuthority().equals("ROLE_" + r)) return true;
-                    return false;
-                });
-        if (!hasRole)
-            throw new org.springframework.security.access.AccessDeniedException(
-                    "Access denied. Required roles: " + String.join(" or ", roles));
+    private Map<String, Object> validateContractActive(Long contractId) {
+        Map<String, Object> data = fetchContract(contractId);
+        String status = (String) data.get("status");
+        if (!"ACTIVE".equals(status)) {
+            throw new BadRequestException(
+                    "Service records can only be logged against ACTIVE contracts. Contract " +
+                    contractId + " is currently " + status + ".");
+        }
+        return data;
     }
 
-    private void requireCompliancePassed(Long referenceId, String checkType, String entityLabel) {
-        ApiResponseDTO<Boolean> response;
+    private void validateContractExists(Long contractId) {
+        fetchContract(contractId);
+    }
+
+    private void validateServiceDateInWindow(LocalDate completionDate, Map<String, Object> contractData) {
+        if (completionDate == null) return;
+
+        Object endObj = contractData.get("endDate");
+        if (endObj == null) return;
+
+        LocalDate today       = LocalDate.now();
+        LocalDate contractEnd = LocalDate.parse(endObj.toString());
+
+        if (completionDate.isBefore(today) || completionDate.isAfter(contractEnd)) {
+            throw new BadRequestException(
+                    "Completion date " + completionDate + " must be today or a future date within the contract end date (" +
+                    contractEnd + ").");
+        }
+    }
+
+    private void validateVendorOwnership(Map<String, Object> contractData) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) return;
+
+        boolean isVendor = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_VENDOR"));
+        if (!isVendor) return;
+
+        Long authenticatedUserId = (Long) auth.getCredentials();
+        if (authenticatedUserId == null) return;
+
+        Object vendorIdObj = contractData.get("vendorId");
+        if (vendorIdObj == null) return;
+        Long contractVendorId = ((Number) vendorIdObj).longValue();
+
+        ApiResponseDTO<Map<String, Object>> vendorResponse;
         try {
-            response = complianceServiceClient.isCompliancePassed(referenceId, checkType);
+            vendorResponse = vendorServiceClient.getVendorById(contractVendorId);
+        } catch (FeignException.NotFound e) {
+            throw new ResourceNotFoundException("Vendor", "id", contractVendorId);
         } catch (Exception e) {
-            throw new BadRequestException(
-                    "Compliance Service is unavailable. Cannot verify " + entityLabel + " #" + referenceId
-                            + " until compliance check is confirmed.");
+            throw new ServiceUnavailableException("Vendor Service is currently unavailable. Please try again later.");
         }
-        if (ComplianceServiceFallback.MARKER.equals(response.getMessage()) || response.getData() == null) {
-            throw new BadRequestException(
-                    "Compliance Service is unavailable. Cannot verify " + entityLabel + " #" + referenceId
-                            + " until compliance check is confirmed.");
+
+        if (VendorServiceFallback.MARKER.equals(vendorResponse.getMessage())) {
+            throw new ServiceUnavailableException("Vendor Service is currently unavailable. Please try again later.");
         }
-        if (!response.getData()) {
-            throw new BadRequestException(
-                    "Compliance check must be PASSED or WAIVED before verifying " + entityLabel + " #" + referenceId
-                            + ". Please ensure a " + checkType + " compliance record exists and is PASSED.");
+        if (!vendorResponse.isSuccess() || vendorResponse.getData() == null) {
+            throw new ResourceNotFoundException("Vendor", "id", contractVendorId);
+        }
+
+        Object userIdObj = vendorResponse.getData().get("userId");
+        if (userIdObj == null) return;
+        Long vendorUserId = ((Number) userIdObj).longValue();
+
+        if (!authenticatedUserId.equals(vendorUserId)) {
+            throw new AccessDeniedException("Access denied: you do not own the vendor associated with this contract.");
+        }
+    }
+
+    private void requireRole(String... roles) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) throw new AccessDeniedException("Not authenticated");
+
+        boolean hasRole = auth.getAuthorities().stream()
+                .anyMatch(a -> {
+                    for (String r : roles) {
+                        if (a.getAuthority().equals("ROLE_" + r)) return true;
+                    }
+                    return false;
+                });
+
+        if (!hasRole) {
+            throw new AccessDeniedException("Access denied. Required roles: " + String.join(" or ", roles));
         }
     }
 
@@ -311,9 +270,14 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
 
     private ServiceResponseDTO mapToResponse(ServiceRecord s) {
         return ServiceResponseDTO.builder()
-                .serviceId(s.getServiceId()).contractId(s.getContractId())
-                .description(s.getDescription()).completionDate(s.getCompletionDate())
-                .status(s.getStatus()).remarks(s.getRemarks())
-                .createdAt(s.getCreatedAt()).updatedAt(s.getUpdatedAt()).build();
+                .serviceId(s.getServiceId())
+                .contractId(s.getContractId())
+                .description(s.getDescription())
+                .completionDate(s.getCompletionDate())
+                .status(s.getStatus())
+                .remarks(s.getRemarks())
+                .createdAt(s.getCreatedAt())
+                .updatedAt(s.getUpdatedAt())
+                .build();
     }
 }
