@@ -4,6 +4,7 @@ import com.buildledger.compliance.dto.request.ComplianceRecordRequestDTO;
 import com.buildledger.compliance.dto.response.ApiResponseDTO;
 import com.buildledger.compliance.dto.response.ComplianceRecordResponseDTO;
 import com.buildledger.compliance.enums.ComplianceStatus;
+import com.buildledger.compliance.enums.ComplianceType;
 import com.buildledger.compliance.service.ComplianceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -82,13 +83,15 @@ public class ComplianceController {
     @PatchMapping("/{complianceId}/status")
     @PreAuthorize("hasRole('COMPLIANCE_OFFICER') or hasRole('ADMIN')")
     @Operation(summary = "Update compliance record status [COMPLIANCE_OFFICER / ADMIN]",
-               description = "Lifecycle: PENDING→UNDER_REVIEW, UNDER_REVIEW→PASSED|FAILED|WAIVED, FAILED→PENDING")
+               description = "Lifecycle: PENDING→UNDER_REVIEW, UNDER_REVIEW→PASSED|FAILED|WAIVED, FAILED→PENDING. " +
+                             "remarks is REQUIRED when setting status=FAILED.")
     public ResponseEntity<ApiResponseDTO<ComplianceRecordResponseDTO>> updateStatus(
             @PathVariable Long complianceId,
             @RequestParam ComplianceStatus status,
+            @RequestParam(required = false) String remarks,
             @RequestHeader(value = "X-Username", defaultValue = "system") String username) {
         return ResponseEntity.ok(ApiResponseDTO.success("Compliance status updated",
-            complianceService.updateComplianceStatus(complianceId, status, username)));
+            complianceService.updateComplianceStatus(complianceId, status, username, remarks)));
     }
 
     @DeleteMapping("/{complianceId}")
@@ -98,5 +101,15 @@ public class ComplianceController {
     public ResponseEntity<ApiResponseDTO<Void>> delete(@PathVariable Long complianceId) {
         complianceService.deleteComplianceRecord(complianceId);
         return ResponseEntity.ok(ApiResponseDTO.success("Compliance record deleted successfully"));
+    }
+
+    @GetMapping("/check/{referenceId}")
+    @Operation(summary = "Check if compliance has PASSED or WAIVED for a reference entity [ALL roles]",
+               description = "Used by other services to gate approvals. type = DELIVERY_CHECK | INVOICE_CHECK | SERVICE_CHECK | DOCUMENT_CHECK")
+    public ResponseEntity<ApiResponseDTO<Boolean>> checkCompliance(
+            @PathVariable Long referenceId,
+            @RequestParam ComplianceType type) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Compliance check result",
+            complianceService.isCompliancePassed(referenceId, type)));
     }
 }

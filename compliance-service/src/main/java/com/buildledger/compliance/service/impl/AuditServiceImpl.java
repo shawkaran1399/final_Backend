@@ -4,6 +4,7 @@ import com.buildledger.compliance.event.NotificationProducer;
 import com.buildledger.compliance.dto.request.AuditRequestDTO;
 import com.buildledger.compliance.dto.response.*;
 import com.buildledger.compliance.entity.Audit;
+import com.buildledger.compliance.entity.ComplianceAuditLog;
 import com.buildledger.compliance.enums.AuditStatus;
 import com.buildledger.compliance.exception.BadRequestException;
 import com.buildledger.compliance.exception.ResourceNotFoundException;
@@ -11,11 +12,13 @@ import com.buildledger.compliance.exception.ServiceUnavailableException;
 import com.buildledger.compliance.feign.IamServiceClient;
 import com.buildledger.compliance.feign.IamServiceFallback;
 import com.buildledger.compliance.repository.AuditRepository;
+import com.buildledger.compliance.repository.ComplianceAuditLogRepository;
 import com.buildledger.compliance.service.AuditService;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
@@ -30,8 +33,9 @@ import java.util.stream.Collectors;
 public class AuditServiceImpl implements AuditService {
 
     private final AuditRepository auditRepository;
+    private final ComplianceAuditLogRepository auditLogRepository;
     private final IamServiceClient iamServiceClient;
-    private final NotificationProducer notificationProducer;  // ADD THIS
+    private final NotificationProducer notificationProducer;
 
     @Override
     public AuditResponseDTO createAudit(AuditRequestDTO request, Long requestUserId, String requestUserRole) {
@@ -151,6 +155,36 @@ public class AuditServiceImpl implements AuditService {
         log.info("Audit deleted: id={}", auditId);
     }
 
+    // ── Compliance Audit Log (automatic, immutable) ───────────────────────
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void createAuditEntry(Long complianceRecordId, String action, String performedBy, String findings) {
+        ComplianceAuditLog entry = ComplianceAuditLog.builder()
+            .complianceRecordId(complianceRecordId)
+            .action(action)
+            .performedBy(performedBy)
+            .findings(findings)
+            .build();
+        auditLogRepository.save(entry);
+        log.info("Audit log created: compliance #{} → {} by {}", complianceRecordId, action, performedBy);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ComplianceAuditLogResponseDTO> getAuditsByComplianceRecord(Long complianceRecordId) {
+        return auditLogRepository.findByComplianceRecordIdOrderByCreatedAtAsc(complianceRecordId)
+            .stream().map(this::mapLogToResponse).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ComplianceAuditLogResponseDTO getAuditLogById(Long logId) {
+        ComplianceAuditLog entry = auditLogRepository.findById(logId)
+            .orElseThrow(() -> new ResourceNotFoundException("AuditLog", "id", logId));
+        return mapLogToResponse(entry);
+    }
+
     // ── Private Helpers ──────────────────────────────────────────────────────
 
     private Map<String, Object> validateComplianceOfficer(Long officerId) {
@@ -194,6 +228,17 @@ public class AuditServiceImpl implements AuditService {
             .status(a.getStatus())
             .createdAt(a.getCreatedAt())
             .updatedAt(a.getUpdatedAt())
+            .build();
+    }
+
+    private ComplianceAuditLogResponseDTO mapLogToResponse(ComplianceAuditLog l) {
+        return ComplianceAuditLogResponseDTO.builder()
+            .logId(l.getLogId())
+            .complianceRecordId(l.getComplianceRecordId())
+            .action(l.getAction())
+            .performedBy(l.getPerformedBy())
+            .findings(l.getFindings())
+            .createdAt(l.getCreatedAt())
             .build();
     }
 }

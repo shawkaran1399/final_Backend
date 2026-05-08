@@ -53,7 +53,6 @@ resilience4j:
         minimumNumberOfCalls: 5
         failureRateThreshold: 50
         waitDurationInOpenState: 15s
-
 springdoc:
   api-docs:
     path: /v3/api-docs

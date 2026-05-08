@@ -3,6 +3,7 @@ package com.buildledger.compliance.controller;
 import com.buildledger.compliance.dto.request.AuditRequestDTO;
 import com.buildledger.compliance.dto.response.ApiResponseDTO;
 import com.buildledger.compliance.dto.response.AuditResponseDTO;
+import com.buildledger.compliance.dto.response.ComplianceAuditLogResponseDTO;
 import com.buildledger.compliance.enums.AuditStatus;
 import com.buildledger.compliance.service.AuditService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -88,5 +89,26 @@ public class AuditController {
     public ResponseEntity<ApiResponseDTO<Void>> deleteAudit(@PathVariable Long auditId) {
         auditService.deleteAudit(auditId);
         return ResponseEntity.ok(ApiResponseDTO.success("Audit deleted successfully"));
+    }
+
+    // ── Compliance Audit Log endpoints (read-only) ────────────────────────
+
+    @GetMapping("/compliance/{complianceRecordId}")
+    @PreAuthorize("hasRole('COMPLIANCE_OFFICER') or hasRole('AUDITOR') or hasRole('ADMIN')")
+    @Operation(summary = "Get audit log for a compliance record [COMPLIANCE_OFFICER / AUDITOR / ADMIN]",
+               description = "Returns all status-change history entries for a given compliance record, ordered by time")
+    public ResponseEntity<ApiResponseDTO<List<ComplianceAuditLogResponseDTO>>> getByComplianceRecord(
+            @PathVariable Long complianceRecordId) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Compliance audit log retrieved",
+            auditService.getAuditsByComplianceRecord(complianceRecordId)));
+    }
+
+    @GetMapping("/logs/{logId}")
+    @PreAuthorize("hasRole('COMPLIANCE_OFFICER') or hasRole('AUDITOR') or hasRole('ADMIN')")
+    @Operation(summary = "Get single audit log entry by ID [COMPLIANCE_OFFICER / AUDITOR / ADMIN]")
+    public ResponseEntity<ApiResponseDTO<ComplianceAuditLogResponseDTO>> getAuditLogById(
+            @PathVariable Long logId) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Audit log entry retrieved",
+            auditService.getAuditLogById(logId)));
     }
 }

@@ -11,6 +11,7 @@ public interface ServiceTrackingService {
     List<ServiceResponseDTO> getAllServices();
     List<ServiceResponseDTO> getServicesByContract(Long contractId);
     ServiceResponseDTO updateServiceStatus(Long serviceId, ServiceStatus nextStatus);
+    List<ServiceResponseDTO> getServicesByStatus(ServiceStatus status);
     ServiceResponseDTO updateService(Long serviceId, ServiceRequestDTO request);
     void deleteService(Long serviceId);
 }

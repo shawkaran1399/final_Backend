@@ -10,6 +10,8 @@ import com.buildledger.delivery.event.NotificationProducer;
 import com.buildledger.delivery.exception.BadRequestException;
 import com.buildledger.delivery.exception.ResourceNotFoundException;
 import com.buildledger.delivery.exception.ServiceUnavailableException;
+import com.buildledger.delivery.feign.ComplianceServiceClient;
+import com.buildledger.delivery.feign.ComplianceServiceFallback;
 import com.buildledger.delivery.feign.ContractServiceClient;
 import com.buildledger.delivery.feign.ContractServiceFallback;
 import com.buildledger.delivery.repository.ServiceRecordRepository;
@@ -34,7 +36,8 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
 
     private final ServiceRecordRepository serviceRecordRepository;
     private final ContractServiceClient contractServiceClient;
-    private final NotificationProducer notificationProducer;  // ← ADD
+    private final ComplianceServiceClient complianceServiceClient;
+    private final NotificationProducer notificationProducer;
 
     public ServiceResponseDTO createService(ServiceRequestDTO request) {
         log.info("Creating service record for contract {}", request.getContractId());
@@ -92,6 +95,12 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
                 .map(this::mapToResponse).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public List<ServiceResponseDTO> getServicesByStatus(ServiceStatus status) {
+        return serviceRecordRepository.findByStatus(status).stream()
+                .map(this::mapToResponse).collect(Collectors.toList());
+    }
+
     public ServiceResponseDTO updateServiceStatus(Long serviceId, ServiceStatus nextStatus) {
         ServiceRecord service = findById(serviceId);
         ServiceStatus current = service.getStatus();
@@ -101,7 +110,7 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         if (!current.canTransitionTo(nextStatus)) {
             throw new BadRequestException(
                     "Invalid service status transition from " + current + " to " + nextStatus +
-                            ". Lifecycle must follow: PENDING → IN_PROGRESS → COMPLETED → VERIFIED.");
+                            ". Lifecycle must follow: PENDING → IN_PROGRESS → COMPLETED → VERIFIED or UNVERIFIED.");
         }
 
         // Role-based validation
@@ -109,6 +118,10 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
             requireRole("VENDOR", "ADMIN");
         }
         if (nextStatus == ServiceStatus.VERIFIED) {
+            requireRole("PROJECT_MANAGER", "ADMIN");
+            requireCompliancePassed(service.getServiceId(), "SERVICE_CHECK", "service");
+        }
+        if (nextStatus == ServiceStatus.UNVERIFIED) {
             requireRole("PROJECT_MANAGER", "ADMIN");
         }
 
@@ -154,6 +167,20 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
                     .message("Service #" + serviceId + " for contract #" + service.getContractId()
                             + " has been VERIFIED by the project manager."
                             + " Description: " + service.getDescription())
+                    .referenceId(String.valueOf(serviceId))
+                    .referenceType("SERVICE")
+                    .build());
+
+        } else if (nextStatus == ServiceStatus.UNVERIFIED) {
+            // PM unverified → notify vendor
+            notificationProducer.send("delivery-events", NotificationEvent.builder()
+                    .recipientEmail(service.getVendorUsername())
+                    .recipientName("Vendor")
+                    .type("SERVICE_UNVERIFIED")
+                    .subject("Service #" + serviceId + " has been marked as unverified")
+                    .message("Service #" + serviceId + " for contract #" + service.getContractId()
+                            + " has been marked as UNVERIFIED by the project manager."
+                            + " Please check with your project manager.")
                     .referenceId(String.valueOf(serviceId))
                     .referenceType("SERVICE")
                     .build());
@@ -254,6 +281,27 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         if (!hasRole)
             throw new org.springframework.security.access.AccessDeniedException(
                     "Access denied. Required roles: " + String.join(" or ", roles));
+    }
+
+    private void requireCompliancePassed(Long referenceId, String checkType, String entityLabel) {
+        ApiResponseDTO<Boolean> response;
+        try {
+            response = complianceServiceClient.isCompliancePassed(referenceId, checkType);
+        } catch (Exception e) {
+            throw new BadRequestException(
+                    "Compliance Service is unavailable. Cannot verify " + entityLabel + " #" + referenceId
+                            + " until compliance check is confirmed.");
+        }
+        if (ComplianceServiceFallback.MARKER.equals(response.getMessage()) || response.getData() == null) {
+            throw new BadRequestException(
+                    "Compliance Service is unavailable. Cannot verify " + entityLabel + " #" + referenceId
+                            + " until compliance check is confirmed.");
+        }
+        if (!response.getData()) {
+            throw new BadRequestException(
+                    "Compliance check must be PASSED or WAIVED before verifying " + entityLabel + " #" + referenceId
+                            + ". Please ensure a " + checkType + " compliance record exists and is PASSED.");
+        }
     }
 
     private ServiceRecord findById(Long id) {

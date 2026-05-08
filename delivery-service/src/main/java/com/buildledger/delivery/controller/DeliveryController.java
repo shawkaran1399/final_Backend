@@ -55,6 +55,14 @@ public class DeliveryController {
             deliveryService.getDeliveriesByContract(contractId)));
     }
 
+    @GetMapping("/status/{status}")
+    @Operation(summary = "Get deliveries by status [ALL roles] — use MARKED_DELIVERED to find deliveries awaiting compliance check")
+    public ResponseEntity<ApiResponseDTO<List<DeliveryResponseDTO>>> getDeliveriesByStatus(
+            @PathVariable DeliveryStatus status) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Deliveries retrieved",
+            deliveryService.getDeliveriesByStatus(status)));
+    }
+
     @PatchMapping("/{deliveryId}/status")
     @Operation(summary = "Update delivery status",
                description = "Lifecycle: PENDING→MARKED_DELIVERED|DELAYED, MARKED_DELIVERED→ACCEPTED|REJECTED, DELAYED→MARKED_DELIVERED. " +

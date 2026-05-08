@@ -6,12 +6,16 @@ import com.buildledger.compliance.dto.request.ComplianceRecordRequestDTO;
 import com.buildledger.compliance.dto.response.*;
 import com.buildledger.compliance.entity.ComplianceRecord;
 import com.buildledger.compliance.enums.ComplianceStatus;
+import com.buildledger.compliance.enums.ComplianceType;
 import com.buildledger.compliance.exception.BadRequestException;
 import com.buildledger.compliance.exception.ResourceNotFoundException;
 import com.buildledger.compliance.exception.ServiceUnavailableException;
 import com.buildledger.compliance.feign.ContractServiceClient;
 import com.buildledger.compliance.feign.ContractServiceFallback;
+import com.buildledger.compliance.feign.DeliveryServiceClient;
+import com.buildledger.compliance.feign.DeliveryServiceFallback;
 import com.buildledger.compliance.repository.ComplianceRecordRepository;
+import com.buildledger.compliance.service.AuditService;
 import com.buildledger.compliance.service.ComplianceService;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
@@ -31,18 +35,19 @@ public class ComplianceServiceImpl implements ComplianceService {
 
     private final ComplianceRecordRepository complianceRecordRepository;
     private final ContractServiceClient contractServiceClient;
+    private final DeliveryServiceClient deliveryServiceClient;
     private final NotificationProducer notificationProducer;
+    private final AuditService auditService;
 
     @Override
     public ComplianceRecordResponseDTO createComplianceRecord(ComplianceRecordRequestDTO request,
                                                               String reviewerUsername) {
-        log.info("Creating compliance record for contract {}", request.getContractId());
-        validateContract(request.getContractId());
+        log.info("Creating compliance record type={} referenceId={}", request.getType(), request.getContractId());
+        validateReferenceEntityStatus(request.getContractId(), request.getType());
 
         ComplianceRecord record = ComplianceRecord.builder()
                 .contractId(request.getContractId())
                 .type(request.getType())
-                .result(request.getResult())
                 .date(request.getDate())
                 .notes(request.getNotes())
                 .status(ComplianceStatus.PENDING)
@@ -82,9 +87,8 @@ public class ComplianceServiceImpl implements ComplianceService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ComplianceRecordResponseDTO> getByContract(Long contractId) {
-        validateContract(contractId);
-        return complianceRecordRepository.findByContractId(contractId).stream()
+    public List<ComplianceRecordResponseDTO> getByContract(Long referenceId) {
+        return complianceRecordRepository.findByContractId(referenceId).stream()
                 .map(this::mapToResponse).collect(Collectors.toList());
     }
 
@@ -105,11 +109,9 @@ public class ComplianceServiceImpl implements ComplianceService {
                     "Compliance record can only be updated in PENDING status. Current status: " + record.getStatus());
         }
         if (request.getContractId() != null && !request.getContractId().equals(record.getContractId())) {
-            validateContract(request.getContractId());
             record.setContractId(request.getContractId());
         }
         if (request.getType() != null) record.setType(request.getType());
-        if (request.getResult() != null) record.setResult(request.getResult());
         if (request.getDate() != null) record.setDate(request.getDate());
         if (request.getNotes() != null) record.setNotes(request.getNotes());
         record.setReviewedBy(reviewerUsername);
@@ -132,9 +134,18 @@ public class ComplianceServiceImpl implements ComplianceService {
 
     @Override
     public ComplianceRecordResponseDTO updateComplianceStatus(Long id, ComplianceStatus newStatus,
-                                                              String reviewerUsername) {
+                                                              String reviewerUsername, String remarks) {
         ComplianceRecord record = findById(id);
         ComplianceStatus current = record.getStatus();
+
+        if (newStatus == ComplianceStatus.FAILED) {
+            if (remarks == null || remarks.isBlank()) {
+                throw new BadRequestException(
+                        "Remarks are required when marking a compliance record as FAILED. " +
+                        "Please provide a reason explaining why the check failed.");
+            }
+            record.setNotes(remarks);
+        }
 
         if (!current.canTransitionTo(newStatus)) {
             throw new BadRequestException(
@@ -155,6 +166,19 @@ public class ComplianceServiceImpl implements ComplianceService {
         record.setStatus(newStatus);
         record.setReviewedBy(reviewerUsername);
         ComplianceRecordResponseDTO result = mapToResponse(complianceRecordRepository.save(record));
+
+        // Automatically record the status change in the immutable audit log (fail-open)
+        try {
+            auditService.createAuditEntry(
+                record.getComplianceId(),
+                newStatus.name(),
+                reviewerUsername,
+                record.getNotes()
+            );
+        } catch (Exception e) {
+            log.warn("Audit log creation failed for compliance record #{} — compliance update was still saved: {}",
+                record.getComplianceId(), e.getMessage());
+        }
 
         // Fires on EVERY status change
         notificationProducer.send("compliance-events", NotificationEvent.builder()
@@ -259,7 +283,49 @@ public class ComplianceServiceImpl implements ComplianceService {
                 .build());
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isCompliancePassed(Long referenceId, ComplianceType type) {
+        return complianceRecordRepository.existsByContractIdAndTypeAndStatusIn(
+                referenceId, type, List.of(ComplianceStatus.PASSED, ComplianceStatus.WAIVED));
+    }
+
     // ── Private Helpers ──────────────────────────────────────────────────────
+
+    private void validateReferenceEntityStatus(Long referenceId, ComplianceType type) {
+        switch (type) {
+            case DELIVERY_CHECK -> {
+                ApiResponseDTO<Map<String, Object>> res;
+                try { res = deliveryServiceClient.getDeliveryById(referenceId); }
+                catch (FeignException.NotFound e) { throw new ResourceNotFoundException("Delivery", "id", referenceId); }
+                catch (Exception e) { throw new ServiceUnavailableException("Delivery Service is currently unavailable."); }
+                if (DeliveryServiceFallback.MARKER.equals(res.getMessage()))
+                    throw new ServiceUnavailableException("Delivery Service is currently unavailable.");
+                if (!res.isSuccess() || res.getData() == null)
+                    throw new ResourceNotFoundException("Delivery", "id", referenceId);
+                String status = (String) res.getData().get("status");
+                if (!"MARKED_DELIVERED".equals(status))
+                    throw new BadRequestException(
+                        "A DELIVERY_CHECK compliance record can only be created for deliveries in MARKED_DELIVERED status. " +
+                        "Delivery #" + referenceId + " has status: " + status);
+            }
+            case SERVICE_CHECK -> {
+                ApiResponseDTO<Map<String, Object>> res;
+                try { res = deliveryServiceClient.getServiceById(referenceId); }
+                catch (FeignException.NotFound e) { throw new ResourceNotFoundException("ServiceRecord", "id", referenceId); }
+                catch (Exception e) { throw new ServiceUnavailableException("Delivery Service is currently unavailable."); }
+                if (DeliveryServiceFallback.MARKER.equals(res.getMessage()))
+                    throw new ServiceUnavailableException("Delivery Service is currently unavailable.");
+                if (!res.isSuccess() || res.getData() == null)
+                    throw new ResourceNotFoundException("ServiceRecord", "id", referenceId);
+                String status = (String) res.getData().get("status");
+                if (!"COMPLETED".equals(status))
+                    throw new BadRequestException(
+                        "A SERVICE_CHECK compliance record can only be created for services in COMPLETED status. " +
+                        "Service #" + referenceId + " has status: " + status);
+            }
+        }
+    }
 
     private void validateContract(Long contractId) {
         ApiResponseDTO<Map<String, Object>> res;
@@ -294,7 +360,6 @@ public class ComplianceServiceImpl implements ComplianceService {
                 .complianceId(r.getComplianceId())
                 .contractId(r.getContractId())
                 .type(r.getType())
-                .result(r.getResult())
                 .date(r.getDate())
                 .notes(r.getNotes())
                 .status(r.getStatus())
