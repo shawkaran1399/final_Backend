@@ -100,7 +100,3 @@ public enum NotificationType
 //    COMPLIANCE_OVERDUE,
     GENERAL
 }
- 
-
-    GENERAL
-}
