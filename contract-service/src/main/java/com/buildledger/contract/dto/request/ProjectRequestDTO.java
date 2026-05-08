@@ -2,11 +2,13 @@ package com.buildledger.contract.dto.request;
 
 import jakarta.validation.constraints.*;
 import lombok.Data;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
 @Data
 public class ProjectRequestDTO {
+
     @NotBlank(message = "Project name is required")
     @Size(min = 3, max = 100, message = "Project name must be between 3 and 100 characters")
     private String name;
@@ -30,8 +32,10 @@ public class ProjectRequestDTO {
     @Future(message = "End date must be in the future")
     private LocalDate endDate;
 
+    @FutureOrPresent(message = "Actual end date cannot be in the past")
+    private LocalDate actualEndDate;
+
     @NotNull(message = "Manager ID is required")
     @Positive(message = "Manager ID must be a positive number")
     private Long managerId;
 }
-

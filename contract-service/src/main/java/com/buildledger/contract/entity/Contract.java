@@ -52,7 +52,7 @@ public class Contract {
     private BigDecimal value;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false)
+    @Column(name = "status", nullable = false, length = 20)
     @Builder.Default
     private ContractStatus status = ContractStatus.DRAFT;
 
