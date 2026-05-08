@@ -10,6 +10,7 @@ public interface DeliveryService {
     DeliveryResponseDTO getDeliveryById(Long deliveryId);
     List<DeliveryResponseDTO> getAllDeliveries();
     List<DeliveryResponseDTO> getDeliveriesByContract(Long contractId);
+    List<DeliveryResponseDTO> getDeliveriesByStatus(DeliveryStatus status);
     DeliveryResponseDTO updateDeliveryStatus(Long deliveryId, DeliveryStatus nextStatus);
     DeliveryResponseDTO updateDelivery(Long deliveryId, DeliveryRequestDTO request);
     void deleteDelivery(Long deliveryId);

@@ -10,6 +10,8 @@ import com.buildledger.delivery.enums.DeliveryStatus;
 import com.buildledger.delivery.exception.BadRequestException;
 import com.buildledger.delivery.exception.ResourceNotFoundException;
 import com.buildledger.delivery.exception.ServiceUnavailableException;
+import com.buildledger.delivery.feign.ComplianceServiceClient;
+import com.buildledger.delivery.feign.ComplianceServiceFallback;
 import com.buildledger.delivery.feign.ContractServiceClient;
 import com.buildledger.delivery.feign.ContractServiceFallback;
 import com.buildledger.delivery.feign.VendorServiceClient;
@@ -36,6 +38,7 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
     private final DeliveryRepository deliveryRepository;
     private final ContractServiceClient contractServiceClient;
     private final VendorServiceClient vendorServiceClient;
+    private final ComplianceServiceClient complianceServiceClient;
     private final NotificationProducer notificationProducer;
 
     public DeliveryResponseDTO createDelivery(DeliveryRequestDTO request) {
@@ -97,6 +100,12 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
                 .map(this::mapToResponse).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public List<DeliveryResponseDTO> getDeliveriesByStatus(DeliveryStatus status) {
+        return deliveryRepository.findByStatus(status).stream()
+                .map(this::mapToResponse).collect(Collectors.toList());
+    }
+
     public DeliveryResponseDTO updateDeliveryStatus(Long deliveryId, DeliveryStatus nextStatus) {
         Delivery delivery = findById(deliveryId);
         DeliveryStatus current = delivery.getStatus();
@@ -115,6 +124,10 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         }
         if (nextStatus == DeliveryStatus.MARKED_DELIVERED || nextStatus == DeliveryStatus.DELAYED) {
             requireRole("VENDOR", "ADMIN");
+        }
+
+        if (nextStatus == DeliveryStatus.ACCEPTED) {
+            requireCompliancePassed(delivery.getDeliveryId(), "DELIVERY_CHECK", "delivery");
         }
 
         delivery.setStatus(nextStatus);
@@ -354,6 +367,27 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         if (!hasRole) {
             throw new org.springframework.security.access.AccessDeniedException(
                     "Access denied. Required roles: " + String.join(" or ", roles));
+        }
+    }
+
+    private void requireCompliancePassed(Long referenceId, String checkType, String entityLabel) {
+        ApiResponseDTO<Boolean> response;
+        try {
+            response = complianceServiceClient.isCompliancePassed(referenceId, checkType);
+        } catch (Exception e) {
+            throw new BadRequestException(
+                    "Compliance Service is unavailable. Cannot accept " + entityLabel + " #" + referenceId
+                            + " until compliance check is confirmed.");
+        }
+        if (ComplianceServiceFallback.MARKER.equals(response.getMessage()) || response.getData() == null) {
+            throw new BadRequestException(
+                    "Compliance Service is unavailable. Cannot accept " + entityLabel + " #" + referenceId
+                            + " until compliance check is confirmed.");
+        }
+        if (!response.getData()) {
+            throw new BadRequestException(
+                    "Compliance check must be PASSED or WAIVED before accepting " + entityLabel + " #" + referenceId
+                            + ". Please ensure a " + checkType + " compliance record exists and is PASSED.");
         }
     }
 

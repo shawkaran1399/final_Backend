@@ -1,6 +1,5 @@
 package com.buildledger.compliance.entity;
 
-import com.buildledger.compliance.enums.ComplianceResult;
 import com.buildledger.compliance.enums.ComplianceStatus;
 import com.buildledger.compliance.enums.ComplianceType;
 import jakarta.persistence.*;
@@ -26,14 +25,10 @@ public class ComplianceRecord {
     @Column(name = "type", nullable = false)
     private ComplianceType type;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "result", length = 50)
-    private ComplianceResult result;
-
     @Column(name = "date", nullable = false)
     private LocalDate date;
 
-    @Column(name = "notes", columnDefinition = "TEXT")
+    @Column(name = "notes", columnDefinition = "TEXT", nullable = false)
     private String notes;
 
     @Enumerated(EnumType.STRING)
