@@ -25,6 +25,7 @@ public class DeliveryRequestDTO {
     @Digits(integer = 14, fraction = 2, message = "Invalid quantity format")
     private BigDecimal quantity;
 
+    @NotBlank(message = "Unit is required")
     @Size(max = 50, message = "Unit cannot exceed 50 characters")
     private String unit;
 
