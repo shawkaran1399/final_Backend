@@ -44,6 +44,7 @@ public class NotificationService {
         return saved;
     }
 
+
     private void deliver(Notification notification) {
         // TODO: Integrate email provider (e.g., SendGrid, JavaMailSender) here
         log.info("=== NOTIFICATION DELIVERED ===");
@@ -66,5 +67,19 @@ public class NotificationService {
 
     @Transactional(readOnly = true)
     public List<Notification> getPending() { return notificationRepository.findByDelivered(false); }
+
+    @Transactional
+    public Notification markAsRead(Long id) {
+        Notification notification = notificationRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Notification not found: " + id));
+        notification.setRead(true);
+        return notificationRepository.save(notification);
+    }
+
+    @Transactional(readOnly = true)
+    public long getUnreadCount(String email, boolean isAdmin) {
+        if (isAdmin) return notificationRepository.countByReadFalse();
+        return notificationRepository.countByRecipientEmailAndReadFalse(email);
+    }
 }
 

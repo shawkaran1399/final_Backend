@@ -56,5 +56,22 @@ public class NotificationController {
     public ResponseEntity<List<Notification>> getByEmail(@PathVariable String email) {
         return ResponseEntity.ok(notificationService.getByEmail(email));
     }
+
+    @PatchMapping("/{id}/read")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Mark a notification as read")
+    public ResponseEntity<Notification> markAsRead(@PathVariable Long id) {
+        return ResponseEntity.ok(notificationService.markAsRead(id));
+    }
+
+    @GetMapping("/unread-count")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get unread notification count")
+    public ResponseEntity<Long> getUnreadCount(Authentication authentication) {
+        String email = authentication.getName();
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        return ResponseEntity.ok(notificationService.getUnreadCount(email, isAdmin));
+    }
 }
 

@@ -1,8 +1,10 @@
+
 server:
   port: 8088
   servlet:
     context-path: /api
 
+#database Connection
 spring:
   application:
     name: notification-service

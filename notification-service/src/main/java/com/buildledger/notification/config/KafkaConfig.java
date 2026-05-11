@@ -24,7 +24,7 @@ public class KafkaConfig {
 
     @Value("${spring.kafka.consumer.group-id}")
     private String groupId;
-
+//     This method is responsible for saying that how the consumer are going to be consume the kafka topics from the kafka broker
     @Bean
     public ConsumerFactory<String, NotificationEvent> consumerFactory() {
         Map<String, Object> props = new HashMap<>();
