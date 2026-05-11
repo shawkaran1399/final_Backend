@@ -19,7 +19,9 @@ public interface ContractService {
     List<ContractResponseDTO> getContractsByManagerUsername(String managerUsername);
     ContractResponseDTO updateContract(Long contractId, ContractRequestDTO request);
     ContractResponseDTO updateContractStatus(Long contractId, ContractStatus status);
+ 
     ContractResponseDTO vendorRespondToContract(Long contractId, String action, String remarks, Long vendorId);
+ 
     void deleteContract(Long contractId);
 
     ContractTermResponseDTO addContractTerm(Long contractId, ContractTermRequestDTO request);

@@ -52,6 +52,7 @@ public class VendorServiceImpl implements VendorService {
     private final IamServiceClient iamServiceClient;
     private final ContractServiceClient contractServiceClient;
     private final NotificationProducer notificationProducer;
+    private final EmailService emailService;  // ← ADD
 
     @Value("${app.document.max-size-mb:10}")
     private long maxFileSizeMb;
@@ -404,6 +405,12 @@ public class VendorServiceImpl implements VendorService {
                         .referenceId(String.valueOf(vendor.getVendorId()))
                         .referenceType("VENDOR")
                         .build());
+                // Send activation email
+                emailService.sendActivationEmail(
+                        vendor.getEmail(),
+                        vendor.getName(),
+                        vendor.getUsername()
+                );
 
             } else if (doc.getVerificationStatus() == VerificationStatus.REJECTED) {
                 vendor.setStatus(VendorStatus.SUSPENDED);
@@ -421,6 +428,11 @@ public class VendorServiceImpl implements VendorService {
                         .referenceId(String.valueOf(vendor.getVendorId()))
                         .referenceType("VENDOR")
                         .build());
+                // Send suspension email
+                emailService.sendSuspensionEmail(
+                        vendor.getEmail(),
+                        vendor.getName()
+                );
             }
         });
     }

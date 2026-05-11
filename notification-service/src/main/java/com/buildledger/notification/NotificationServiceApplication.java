@@ -13,3 +13,4 @@ public class NotificationServiceApplication {
         dotenv.entries().forEach(e -> System.setProperty(e.getKey(), e.getValue()));
         SpringApplication.run(NotificationServiceApplication.class, args); }
 }
+

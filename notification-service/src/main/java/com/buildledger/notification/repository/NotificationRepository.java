@@ -11,6 +11,7 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     List<Notification> findByRecipientEmail(String email);
     List<Notification> findByType(NotificationType type);
     List<Notification> findByDelivered(Boolean delivered);
-    long countByRecipientEmailAndRead(String email, Boolean read);
+    long countByRecipientEmailAndReadFalse(String email);
+    long countByReadFalse();
 }
 

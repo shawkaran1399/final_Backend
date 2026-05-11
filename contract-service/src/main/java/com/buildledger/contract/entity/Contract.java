@@ -52,15 +52,12 @@ public class Contract {
     private BigDecimal value;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false)
     @Builder.Default
     private ContractStatus status = ContractStatus.DRAFT;
 
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
-
-    @Column(name = "vendor_remarks", columnDefinition = "TEXT")
-    private String vendorRemarks;
 
     @CreatedDate
     @Column(name = "created_at", updatable = false)

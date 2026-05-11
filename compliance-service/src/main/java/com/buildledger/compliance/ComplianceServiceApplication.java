@@ -18,3 +18,4 @@ public class ComplianceServiceApplication {
         dotenv.entries().forEach(e -> System.setProperty(e.getKey(), e.getValue()));
         SpringApplication.run(ComplianceServiceApplication.class, args); }
 }
+

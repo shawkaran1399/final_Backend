@@ -27,8 +27,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+<<<<<<< main
+=======
 import java.util.Objects;
 import java.util.Set;
+>>>>>>> main
 import java.util.stream.Collectors;
 
 @Service
@@ -243,12 +246,22 @@ public class ContractServiceImpl implements ContractService {
     // ── Update status ─────────────────────────────────────────────────────────
 
     public ContractResponseDTO updateContractStatus(Long contractId, ContractStatus newStatus) {
+<<<<<<< main
+        Contract contract = findById(contractId);
+        ContractStatus current = contract.getStatus();
+        if (!current.canTransitionTo(newStatus)) {
+            throw new BadRequestException(
+                    "Invalid status transition from " + current + " to " + newStatus +
+                            ". Allowed: DRAFT→ACTIVE, ACTIVE→COMPLETED|TERMINATED|EXPIRED.");
+        }
+=======
         Contract       contract = findById(contractId);
         ContractStatus current  = contract.getStatus();
 
         if (!current.canTransitionTo(newStatus))
             throw new BadRequestException("Invalid transition: " + current + " → " + newStatus);
 
+>>>>>>> main
         contract.setStatus(newStatus);
         ContractResponseDTO result = mapToResponse(contractRepository.save(contract));
 
@@ -281,6 +294,8 @@ public class ContractServiceImpl implements ContractService {
         return result;
     }
 
+<<<<<<< main
+=======
     // ── Vendor respond ────────────────────────────────────────────────────────
 
     public ContractResponseDTO vendorRespondToContract(Long contractId, String action,
@@ -316,6 +331,7 @@ public class ContractServiceImpl implements ContractService {
 
     // ── Delete ────────────────────────────────────────────────────────────────
 
+>>>>>>> main
     public void deleteContract(Long contractId) {
         Contract contract = findById(contractId);
         if (contract.getStatus() != ContractStatus.DRAFT)
@@ -333,6 +349,35 @@ public class ContractServiceImpl implements ContractService {
                 .referenceId(String.valueOf(contractId)).referenceType("CONTRACT").build());
     }
 
+<<<<<<< main
+    public ContractTermResponseDTO addContractTerm(Long contractId, ContractTermRequestDTO request) {
+        Contract contract = findById(contractId);
+        if (contract.getStatus() != ContractStatus.DRAFT) {
+            throw new BadRequestException(
+                    "Terms can only be added to DRAFT contracts. Current status: " + contract.getStatus());
+        }
+        ContractTerm term = ContractTerm.builder()
+                .contract(contract)
+                .description(request.getDescription())
+                .complianceFlag(request.getComplianceFlag() != null ? request.getComplianceFlag() : false)
+                .sequenceNumber(request.getSequenceNumber())
+                .build();
+
+        ContractTermResponseDTO result = mapTermToResponse(contractTermRepository.save(term));
+
+        // ← CONTRACT_TERM_ADDED — notify vendor
+        notificationProducer.send("contract-events", NotificationEvent.builder()
+                .recipientEmail(contract.getVendorUsername())
+                .recipientName(contract.getVendorName())
+                .type("CONTRACT_TERM_ADDED")
+                .subject("A new term added to your contract")
+                .message("Dear " + contract.getVendorName() + ", a new term has been added to your contract "
+                        + "for project '" + contract.getProjectName() + "'. "
+                        + "Term: " + request.getDescription())
+                .referenceId(String.valueOf(contractId))
+                .referenceType("CONTRACT")
+                .build());
+=======
     // ── Terms ─────────────────────────────────────────────────────────────────
 
     public ContractTermResponseDTO addContractTerm(Long contractId, ContractTermRequestDTO request) {
@@ -353,6 +398,7 @@ public class ContractServiceImpl implements ContractService {
                 .message("Dear " + contract.getVendorName() + ", a new term has been added to your contract for '"
                         + contract.getProjectName() + "': " + request.getDescription())
                 .referenceId(String.valueOf(contractId)).referenceType("CONTRACT").build());
+>>>>>>> main
 
         return result;
     }
@@ -441,9 +487,16 @@ public class ContractServiceImpl implements ContractService {
     private ContractResponseDTO mapToResponse(Contract c) {
         return ContractResponseDTO.builder()
                 .contractId(c.getContractId()).vendorId(c.getVendorId()).vendorName(c.getVendorName())
+<<<<<<< main
+                .vendorUsername(c.getVendorUsername())   // ← ADD THIS
+                .projectId(c.getProjectId()).projectName(c.getProjectName())
+                .startDate(c.getStartDate()).endDate(c.getEndDate()).value(c.getValue())
+                .status(c.getStatus()).description(c.getDescription())
+=======
                 .projectId(c.getProjectId()).projectName(c.getProjectName())
                 .startDate(c.getStartDate()).endDate(c.getEndDate()).value(c.getValue())
                 .status(c.getStatus()).description(c.getDescription()).vendorRemarks(c.getVendorRemarks())
+>>>>>>> main
                 .createdAt(c.getCreatedAt()).updatedAt(c.getUpdatedAt()).build();
     }
 

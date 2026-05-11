@@ -49,9 +49,17 @@ public class User {
     @Builder.Default
     private UserStatus status = UserStatus.ACTIVE;
 
+    @Column(name = "password_change_required", nullable = false)
+    @Builder.Default
+    private Boolean passwordChangeRequired = false;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+//    @Column(name = "password_change_required", nullable = false)
+//    @Builder.Default
+//    private Boolean passwordChangeRequired = false;
 
     @LastModifiedDate
     @Column(name = "updated_at")

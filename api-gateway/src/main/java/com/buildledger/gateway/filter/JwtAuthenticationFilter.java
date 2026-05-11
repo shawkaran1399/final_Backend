@@ -40,11 +40,12 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     // Paths that do NOT require authentication
     private static final List<String> PUBLIC_PATHS = List.of(
-        "/api/auth/login",
-        "/api/vendors/register",
-        "/api/vendors/auth/login",           // pending vendor login
-        "/api/vendors/*/documents",        // vendor doc upload (POST) – public
-        "/api/vendors/*/documents/replace" // vendor doc replace (PUT) – public
+            "/api/auth/login",
+            "/api/vendors/register",
+            "/api/vendors/auth/login",
+            "/api/vendors/*/documents",
+            "/api/vendors/*/documents/replace",
+            "/api/users/change-password"           // ← ADD
     );
 
     // Read-only GET paths that are open to all
@@ -118,6 +119,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         if (path.equals("/api/auth/login")) return true;
         if (path.equals("/api/vendors/register")) return true;
         if (path.equals("/api/vendors/auth/login")) return true;
+        if (path.equals("/api/users/change-password")) return true;  // ← ADD
 
         // POST and PUT to vendor documents (upload/replace) are public
         if (path.matches("/api/vendors/\\d+/documents") &&
