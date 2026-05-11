@@ -7,7 +7,8 @@ public enum ContractStatus {
 
     public boolean canTransitionTo(ContractStatus next) {
         return switch (this) {
-            case DRAFT      -> next == ACTIVE;
+            case DRAFT      -> next == PENDING || next == ACTIVE;
+            case PENDING    -> false; // only vendor can move PENDING → ACTIVE/REJECTED via vendorRespondToContract
             case ACTIVE     -> next == COMPLETED || next == TERMINATED || next == EXPIRED;
             case COMPLETED  -> false;
             case TERMINATED -> false;
