@@ -1,9 +1,11 @@
 package com.buildledger.contract.dto.request;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.*;
 
 @Data
 public class ContractRequestDTO {
@@ -29,5 +31,8 @@ public class ContractRequestDTO {
 
     @Size(max = 1000, message = "Description cannot exceed 1000 characters")
     private String description;
+
+    @Valid
+    private List<ContractTermRequestDTO> terms;
 }
 

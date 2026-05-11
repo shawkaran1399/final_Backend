@@ -10,8 +10,10 @@ public interface ProjectService {
     ProjectResponseDTO getProjectById(Long projectId);
     List<ProjectResponseDTO> getAllProjects();
     List<ProjectResponseDTO> getProjectsByManager(Long managerId);
+    List<ProjectResponseDTO> getMyProjects(String managerUsername);
     ProjectResponseDTO updateProject(Long projectId, ProjectRequestDTO request);
+    // PM-only: update description and actual end date
+    ProjectResponseDTO updateProjectNotes(Long projectId, String description, String actualEndDate);
     ProjectResponseDTO updateProjectStatus(Long projectId, ProjectStatus newStatus);
     void deleteProject(Long projectId);
 }
-
