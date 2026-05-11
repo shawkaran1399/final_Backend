@@ -59,6 +59,8 @@ eureka:
     register-with-eureka: true
   instance:
     prefer-ip-address: true
+    ip-address: 127.0.0.1
+    hostname: localhost
 
 # Resilience4j Circuit Breaker
 resilience4j:
@@ -90,4 +92,3 @@ management:
 logging:
   level:
     com.buildledger: DEBUG
-
