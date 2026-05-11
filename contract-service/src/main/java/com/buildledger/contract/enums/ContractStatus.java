@@ -1,7 +1,9 @@
 package com.buildledger.contract.enums;
 
 public enum ContractStatus {
-    DRAFT, ACTIVE, COMPLETED, TERMINATED, EXPIRED;
+
+    DRAFT, PENDING, ACTIVE, COMPLETED, TERMINATED, EXPIRED, REJECTED;
+ 
 
     public boolean canTransitionTo(ContractStatus next) {
         return switch (this) {
@@ -10,7 +12,7 @@ public enum ContractStatus {
             case COMPLETED  -> false;
             case TERMINATED -> false;
             case EXPIRED    -> false;
+            case REJECTED   -> false;
         };
     }
 }
-

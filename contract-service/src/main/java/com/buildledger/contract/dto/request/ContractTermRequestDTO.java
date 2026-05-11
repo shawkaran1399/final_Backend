@@ -7,7 +7,7 @@ import lombok.Data;
 public class ContractTermRequestDTO {
 
     @NotBlank(message = "Description is required")
-    @Size(min = 5, max = 1000, message = "Description must be between 5 and 1000 characters")
+    @Size(min = 3, max = 1000, message = "Description must be between 3 and 1000 characters")
     private String description;
 
     private Boolean complianceFlag;
@@ -15,4 +15,3 @@ public class ContractTermRequestDTO {
     @Min(value = 1, message = "Sequence number must be at least 1")
     private Integer sequenceNumber;
 }
-

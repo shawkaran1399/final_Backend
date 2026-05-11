@@ -29,7 +29,7 @@ spring:
             - Path=/iam/v3/api-docs
           filters:
             - RewritePath=/iam/v3/api-docs, /api/v3/api-docs
-            
+
         - id: iam-service
           uri: lb://iam-service
           predicates:
@@ -47,7 +47,7 @@ spring:
             - Path=/vendor/v3/api-docs
           filters:
             - RewritePath=/vendor/v3/api-docs, /api/v3/api-docs
-            
+
         - id: vendor-service
           uri: lb://vendor-service
           predicates:
@@ -65,7 +65,7 @@ spring:
             - Path=/contract/v3/api-docs
           filters:
             - RewritePath=/contract/v3/api-docs, /api/v3/api-docs
-            
+
         - id: contract-service-projects
           uri: lb://contract-service
           predicates:
@@ -93,7 +93,7 @@ spring:
             - Path=/delivery/v3/api-docs
           filters:
             - RewritePath=/delivery/v3/api-docs, /api/v3/api-docs
-            
+
         - id: delivery-service-services
           uri: lb://delivery-service
           predicates:
@@ -103,7 +103,7 @@ spring:
               args:
                 name: delivery-cb
                 fallbackUri: forward:/fallback/delivery
-                
+
         - id: delivery-service
           uri: lb://delivery-service
           predicates:
@@ -121,7 +121,7 @@ spring:
             - Path=/finance/v3/api-docs
           filters:
             - RewritePath=/finance/v3/api-docs, /api/v3/api-docs
-            
+
         - id: finance-service
           uri: lb://finance-service
           predicates:
@@ -139,7 +139,7 @@ spring:
             - Path=/compliance/v3/api-docs
           filters:
             - RewritePath=/compliance/v3/api-docs, /api/v3/api-docs
-            
+
         - id: compliance-service
           uri: lb://compliance-service
           predicates:
@@ -157,7 +157,7 @@ spring:
             - Path=/notification/v3/api-docs
           filters:
             - RewritePath=/notification/v3/api-docs, /api/v3/api-docs
-            
+
         - id: notification-service
           uri: lb://notification-service
           predicates:
@@ -175,7 +175,7 @@ spring:
             - Path=/report/v3/api-docs
           filters:
             - RewritePath=/report/v3/api-docs, /api/v3/api-docs
-            
+
         - id: report-service
           uri: lb://report-service
           predicates:
@@ -195,6 +195,8 @@ eureka:
     register-with-eureka: true
   instance:
     prefer-ip-address: true
+    ip-address: 127.0.0.1
+    hostname: localhost
 
 # JWT
 jwt:
@@ -281,4 +283,3 @@ logging:
     com.buildledger: DEBUG
     org.springframework.cloud.gateway: INFO
     io.github.resilience4j: DEBUG
-
