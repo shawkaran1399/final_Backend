@@ -43,6 +43,8 @@ eureka:
     register-with-eureka: true
   instance:
     prefer-ip-address: true
+    ip-address: 127.0.0.1
+    hostname: localhost
 
 feign:
   circuitbreaker:
@@ -58,12 +60,6 @@ resilience4j:
   circuitbreaker:
     instances:
       contract-service:
-        slidingWindowSize: 10
-        minimumNumberOfCalls: 5
-        failureRateThreshold: 50
-        waitDurationInOpenState: 15s
-        permittedNumberOfCallsInHalfOpenState: 3
-      compliance-service:
         slidingWindowSize: 10
         minimumNumberOfCalls: 5
         failureRateThreshold: 50
@@ -85,4 +81,3 @@ management:
 logging:
   level:
     com.buildledger: DEBUG
-

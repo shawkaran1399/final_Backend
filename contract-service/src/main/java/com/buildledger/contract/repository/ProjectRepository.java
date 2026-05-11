@@ -8,5 +8,7 @@ import java.util.List;
 @Repository
 public interface ProjectRepository extends JpaRepository<Project, Long> {
     List<Project> findByManagerId(Long managerId);
+    List<Project> findByManagerName(String managerName);
+    // Search by username (JWT principal) — matches managerUsername stored at creation time
+    List<Project> findByManagerUsername(String managerUsername);
 }
-

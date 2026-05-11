@@ -44,6 +44,8 @@ eureka:
     register-with-eureka: true
   instance:
     prefer-ip-address: true
+    ip-address: 127.0.0.1
+    hostname: localhost
 
 resilience4j:
   circuitbreaker:
@@ -53,6 +55,7 @@ resilience4j:
         minimumNumberOfCalls: 5
         failureRateThreshold: 50
         waitDurationInOpenState: 15s
+
 springdoc:
   api-docs:
     path: /v3/api-docs
@@ -68,4 +71,3 @@ management:
 logging:
   level:
     com.buildledger: DEBUG
-

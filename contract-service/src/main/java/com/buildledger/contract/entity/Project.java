@@ -44,7 +44,7 @@ public class Project {
     private LocalDate actualEndDate;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false)
     @Builder.Default
     private ProjectStatus status = ProjectStatus.PLANNING;
 
@@ -52,9 +52,17 @@ public class Project {
     @Column(name = "manager_id")
     private Long managerId;
 
-    /** Manager name cached from IAM – avoids repeated cross-service calls */
+    /** Manager display name cached from IAM */
     @Column(name = "manager_name", length = 100)
     private String managerName;
+
+    /**
+     * Manager username (login name) cached from IAM.
+     * Used for filtering projects by the logged-in PM's JWT principal.
+     * This matches authentication.getName() which returns the username, not the display name.
+     */
+    @Column(name = "manager_username", length = 100)
+    private String managerUsername;
 
     @CreatedDate
     @Column(name = "created_at", updatable = false)
@@ -64,4 +72,3 @@ public class Project {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 }
-
