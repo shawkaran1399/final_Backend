@@ -295,15 +295,14 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
     private void validateDeliveryDateInWindow(java.time.LocalDate deliveryDate,
                                               Map<String, Object> contractData) {
         if (deliveryDate == null) return;
-        Object startObj = contractData.get("startDate");
-        Object endObj   = contractData.get("endDate");
-        if (startObj == null || endObj == null) return;
-        java.time.LocalDate contractStart = java.time.LocalDate.parse(startObj.toString());
-        java.time.LocalDate contractEnd   = java.time.LocalDate.parse(endObj.toString());
-        if (deliveryDate.isBefore(contractStart) || deliveryDate.isAfter(contractEnd)) {
+        Object endObj = contractData.get("endDate");
+        if (endObj == null) return;
+        java.time.LocalDate today       = java.time.LocalDate.now();
+        java.time.LocalDate contractEnd = java.time.LocalDate.parse(endObj.toString());
+        if (deliveryDate.isBefore(today) || deliveryDate.isAfter(contractEnd)) {
             throw new BadRequestException(
-                    "Delivery date " + deliveryDate + " is outside the contract period ("
-                            + contractStart + " to " + contractEnd + ").");
+                    "Delivery date " + deliveryDate + " must be today or a future date within the contract end date ("
+                            + contractEnd + ").");
         }
     }
 
