@@ -12,6 +12,7 @@ public enum NotificationType
     SERVICE_STARTED,
     SERVICE_COMPLETED,
     SERVICE_VERIFIED,
+    SERVICE_UNVERIFIED,
     SERVICE_DELETED,
 
  

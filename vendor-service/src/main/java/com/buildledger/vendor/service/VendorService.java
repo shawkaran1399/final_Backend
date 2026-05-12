@@ -15,6 +15,7 @@ import java.util.List;
 public interface VendorService {
     VendorResponseDTO registerVendor(CreateVendorRequestDTO request);
     VendorResponseDTO getVendorById(Long vendorId);
+    VendorResponseDTO getVendorByUsername(String username);
     List<VendorResponseDTO> getAllVendors();
     List<VendorResponseDTO> getVendorsByStatus(VendorStatus status);
     VendorResponseDTO updateVendor(Long vendorId, UpdateVendorRequestDTO request);

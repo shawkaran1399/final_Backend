@@ -70,6 +70,14 @@ public class VendorController {
         return ResponseEntity.ok(ApiResponseDTO.success("Vendor retrieved", vendorService.getVendorById(vendorId)));
     }
 
+    @GetMapping("/username/{username}")
+    @Operation(summary = "Get vendor by username [ALL roles]")
+    public ResponseEntity<ApiResponseDTO<VendorResponseDTO>> getVendorByUsername(
+            @PathVariable String username) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Vendor retrieved",
+            vendorService.getVendorByUsername(username)));
+    }
+
     @GetMapping("/status/{status}")
     @Operation(summary = "Get vendors by status [ALL roles]")
     public ResponseEntity<ApiResponseDTO<List<VendorResponseDTO>>> getVendorsByStatus(

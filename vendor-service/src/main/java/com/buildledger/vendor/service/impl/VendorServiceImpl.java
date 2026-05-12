@@ -104,6 +104,14 @@ public class VendorServiceImpl implements VendorService {
 
     @Override
     @Transactional(readOnly = true)
+    public VendorResponseDTO getVendorByUsername(String username) {
+        Vendor vendor = vendorRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("Vendor", "username", username));
+        return mapToResponse(vendor);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<VendorResponseDTO> getAllVendors() {
         return vendorRepository.findAll().stream().map(this::mapToResponse).collect(Collectors.toList());
     }
