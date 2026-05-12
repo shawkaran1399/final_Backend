@@ -2,6 +2,7 @@ package com.buildledger.delivery.controller;
 
 import com.buildledger.delivery.dto.request.DeliveryRequestDTO;
 import com.buildledger.delivery.dto.response.ApiResponseDTO;
+import com.buildledger.delivery.dto.response.ContractBudgetSummaryDTO;
 import com.buildledger.delivery.dto.response.DeliveryResponseDTO;
 import com.buildledger.delivery.enums.DeliveryStatus;
 import com.buildledger.delivery.service.DeliveryService;
@@ -32,19 +33,23 @@ public class DeliveryController {
     public ResponseEntity<ApiResponseDTO<DeliveryResponseDTO>> createDelivery(
             @Valid @RequestBody DeliveryRequestDTO request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponseDTO.success("Delivery created successfully", deliveryService.createDelivery(request)));
+                .body(ApiResponseDTO.success("Delivery created successfully",
+                        deliveryService.createDelivery(request)));
     }
 
     @GetMapping
     @Operation(summary = "Get all deliveries [ALL roles]")
     public ResponseEntity<ApiResponseDTO<List<DeliveryResponseDTO>>> getAllDeliveries() {
-        return ResponseEntity.ok(ApiResponseDTO.success("Deliveries retrieved", deliveryService.getAllDeliveries()));
+        return ResponseEntity.ok(ApiResponseDTO.success("Deliveries retrieved",
+                deliveryService.getAllDeliveries()));
     }
 
     @GetMapping("/{deliveryId}")
     @Operation(summary = "Get delivery by ID [ALL roles]")
-    public ResponseEntity<ApiResponseDTO<DeliveryResponseDTO>> getDeliveryById(@PathVariable Long deliveryId) {
-        return ResponseEntity.ok(ApiResponseDTO.success("Delivery retrieved", deliveryService.getDeliveryById(deliveryId)));
+    public ResponseEntity<ApiResponseDTO<DeliveryResponseDTO>> getDeliveryById(
+            @PathVariable Long deliveryId) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Delivery retrieved",
+                deliveryService.getDeliveryById(deliveryId)));
     }
 
     @GetMapping("/contract/{contractId}")
@@ -52,26 +57,34 @@ public class DeliveryController {
     public ResponseEntity<ApiResponseDTO<List<DeliveryResponseDTO>>> getDeliveriesByContract(
             @PathVariable Long contractId) {
         return ResponseEntity.ok(ApiResponseDTO.success("Deliveries retrieved",
-            deliveryService.getDeliveriesByContract(contractId)));
+                deliveryService.getDeliveriesByContract(contractId)));
     }
 
-    @GetMapping("/status/{status}")
-    @Operation(summary = "Get deliveries by status [ALL roles] — use MARKED_DELIVERED to find deliveries awaiting compliance check")
-    public ResponseEntity<ApiResponseDTO<List<DeliveryResponseDTO>>> getDeliveriesByStatus(
-            @PathVariable DeliveryStatus status) {
-        return ResponseEntity.ok(ApiResponseDTO.success("Deliveries retrieved",
-            deliveryService.getDeliveriesByStatus(status)));
+    /**
+     * Contract-level budget summary for delivery/service price validation.
+     * remaining = contractValue - sum(delivery prices) - sum(service prices)
+     * Frontend uses this to show live budget breakdown and hard-block if exceeded.
+     *
+     * GET /deliveries/contract/{contractId}/budget-summary
+     */
+    @GetMapping("/contract/{contractId}/budget-summary")
+    @Operation(summary = "Get contract budget summary [ALL roles]",
+            description = "Returns contractValue, spent (sum of delivery+service prices), remaining, overBudget")
+    public ResponseEntity<ApiResponseDTO<ContractBudgetSummaryDTO>> getContractBudgetSummary(
+            @PathVariable Long contractId) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Contract budget summary retrieved",
+                deliveryService.getContractBudgetSummary(contractId)));
     }
 
     @PatchMapping("/{deliveryId}/status")
     @Operation(summary = "Update delivery status",
-               description = "Lifecycle: PENDING→MARKED_DELIVERED|DELAYED, MARKED_DELIVERED→ACCEPTED|REJECTED, DELAYED→MARKED_DELIVERED. " +
-                             "ACCEPTED/REJECTED require PROJECT_MANAGER or ADMIN. MARKED_DELIVERED/DELAYED require VENDOR or ADMIN.")
+            description = "PENDING→MARKED_DELIVERED|DELAYED, MARKED_DELIVERED→ACCEPTED|REJECTED, DELAYED→MARKED_DELIVERED. " +
+                    "ACCEPTED/REJECTED require PROJECT_MANAGER or ADMIN. MARKED_DELIVERED/DELAYED require VENDOR or ADMIN.")
     public ResponseEntity<ApiResponseDTO<DeliveryResponseDTO>> updateDeliveryStatus(
             @PathVariable Long deliveryId,
             @RequestParam DeliveryStatus status) {
         return ResponseEntity.ok(ApiResponseDTO.success("Delivery status updated",
-            deliveryService.updateDeliveryStatus(deliveryId, status)));
+                deliveryService.updateDeliveryStatus(deliveryId, status)));
     }
 
     @PutMapping("/{deliveryId}")
@@ -81,7 +94,7 @@ public class DeliveryController {
             @PathVariable Long deliveryId,
             @Valid @RequestBody DeliveryRequestDTO request) {
         return ResponseEntity.ok(ApiResponseDTO.success("Delivery updated",
-            deliveryService.updateDelivery(deliveryId, request)));
+                deliveryService.updateDelivery(deliveryId, request)));
     }
 
     @DeleteMapping("/{deliveryId}")
@@ -92,4 +105,3 @@ public class DeliveryController {
         return ResponseEntity.ok(ApiResponseDTO.success("Delivery deleted successfully"));
     }
 }
-

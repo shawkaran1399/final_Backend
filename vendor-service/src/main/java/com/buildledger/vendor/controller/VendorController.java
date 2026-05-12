@@ -54,7 +54,7 @@ public class VendorController {
     public ResponseEntity<ApiResponseDTO<VendorResponseDTO>> registerVendor(
             @Valid @RequestBody CreateVendorRequestDTO request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponseDTO.success(
-            "Vendor registered successfully. Please upload your documents for verification.", 
+            "Vendor registered successfully. Please upload your documents for verification.",
             vendorService.registerVendor(request)));
     }
 

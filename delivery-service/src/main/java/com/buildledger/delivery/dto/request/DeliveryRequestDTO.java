@@ -13,7 +13,6 @@ public class DeliveryRequestDTO {
     private Long contractId;
 
     @NotNull(message = "Delivery date is required")
-    //@PastOrPresent(message = "Delivery date cannot be in the future")
     private LocalDate date;
 
     @NotBlank(message = "Item name is required")
@@ -25,11 +24,18 @@ public class DeliveryRequestDTO {
     @Digits(integer = 14, fraction = 2, message = "Invalid quantity format")
     private BigDecimal quantity;
 
-    @NotBlank(message = "Unit is required")
     @Size(max = 50, message = "Unit cannot exceed 50 characters")
     private String unit;
+
+    /**
+     * Price of this delivery in INR.
+     * Backend validates: price <= contractValue - sum(existing delivery+service prices)
+     */
+    @NotNull(message = "Price is required")
+    @DecimalMin(value = "0.01", message = "Price must be greater than zero")
+    @Digits(integer = 14, fraction = 2, message = "Invalid price format")
+    private BigDecimal price;
 
     @Size(max = 500, message = "Remarks cannot exceed 500 characters")
     private String remarks;
 }
-

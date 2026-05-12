@@ -67,8 +67,8 @@ public class ReportController {
     }
 
     @GetMapping("/invoices/summary")
-    @PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_OFFICER') or hasRole('VENDOR')")
-    @Operation(summary = "Get invoice page summary [ADMIN / FINANCE_OFFICER / VENDOR]")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_OFFICER')")
+    @Operation(summary = "Get invoice page summary [ADMIN / FINANCE_OFFICER]")
     public ResponseEntity<Map<String, Object>> getInvoicePageSummary() {
         return ResponseEntity.ok(reportService.generateInvoicePageSummary());
     }
@@ -88,8 +88,8 @@ public class ReportController {
     }
 
     @GetMapping("/deliveries/summary")
-    @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER') or hasRole('VENDOR')")
-    @Operation(summary = "Get delivery page summary [ADMIN / PROJECT_MANAGER / VENDOR]")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER')")
+    @Operation(summary = "Get delivery page summary [ADMIN / PROJECT_MANAGER]")
     public ResponseEntity<Map<String, Object>> getDeliveryPageSummary() {
         return ResponseEntity.ok(reportService.generateDeliveryPageSummary());
     }

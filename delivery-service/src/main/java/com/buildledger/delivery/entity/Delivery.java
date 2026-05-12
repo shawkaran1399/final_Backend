@@ -26,11 +26,6 @@ public class Delivery {
     @Column(name = "contract_id", nullable = false)
     private Long contractId;
 
-    @Column(name = "vendor_username", length = 100)
-    private String vendorUsername;    // ← vendor who owns the contract
-
-    @Column(name = "manager_username", length = 100)
-    private String managerUsername;   // ← PM of the contract
     @Column(name = "date", nullable = false)
     private LocalDate date;
 
@@ -43,6 +38,14 @@ public class Delivery {
     @Column(name = "unit", length = 50)
     private String unit;
 
+    /**
+     * Price of this delivery milestone in INR.
+     * Must not exceed remaining contract budget (contractValue - sum of existing delivery+service prices).
+     * Used later to generate delivery invoice.
+     */
+    @Column(name = "price", precision = 18, scale = 2, nullable = false)
+    private BigDecimal price;
+
     @Column(name = "remarks", columnDefinition = "TEXT")
     private String remarks;
 
@@ -51,6 +54,28 @@ public class Delivery {
     @Builder.Default
     private DeliveryStatus status = DeliveryStatus.PENDING;
 
+    /**
+     * Project Manager username cached from contract-service.
+     * Used by DeliveryOverdueScheduler to send overdue notifications to the PM.
+     */
+    @Column(name = "manager_username", length = 100)
+    private String managerUsername;
+
+    /**
+     * Vendor username cached from contract-service.
+     * Used by DeliveryOverdueScheduler to send overdue notifications to the Vendor.
+     */
+    @Column(name = "vendor_username", length = 100)
+    private String vendorUsername;
+
+    /**
+     * Date when last overdue notification was sent.
+     * Prevents DeliveryOverdueScheduler from sending duplicate alerts.
+     * Null means no notification has been sent yet.
+     */
+    @Column(name = "last_notified_date")
+    private LocalDate lastNotifiedDate;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
@@ -58,8 +83,4 @@ public class Delivery {
     @LastModifiedDate
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-
-    @Column(name = "last_notified_date")
-    private LocalDate lastNotifiedDate;
 }
-

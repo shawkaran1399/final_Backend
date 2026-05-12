@@ -16,4 +16,3 @@ public class ContractServiceApplication {
         SpringApplication.run(ContractServiceApplication.class, args);
     }
 }
-

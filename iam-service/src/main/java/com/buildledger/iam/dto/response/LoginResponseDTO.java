@@ -18,6 +18,5 @@ public class LoginResponseDTO {
     private String username;
     private String name;
     private Role role;
-    private Boolean requiresPasswordChange;   // ← ADD
-    private String message;                   // ← ADD
 }
+

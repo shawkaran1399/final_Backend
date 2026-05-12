@@ -264,7 +264,7 @@ resilience4j:
   timelimiter:
     configs:
       default:
-        timeoutDuration: 30s
+        timeoutDuration: 10s
 
 management:
   endpoints:

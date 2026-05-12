@@ -15,13 +15,17 @@ public interface ContractService {
     List<ContractResponseDTO> getContractsByVendor(Long vendorId);
     List<ContractResponseDTO> getContractsByProject(Long projectId);
     List<ContractResponseDTO> getContractsByStatus(ContractStatus status);
-    // Returns only contracts for projects assigned to the logged-in PM
+
+    // Returns contracts for the logged-in PM's assigned projects
     List<ContractResponseDTO> getContractsByManagerUsername(String managerUsername);
+
+    // Returns contracts assigned to the logged-in vendor (by username)
+    // Used by DeliveryTracking so vendor can see their ACTIVE contracts in dropdown
+    List<ContractResponseDTO> getContractsByVendorUsername(String vendorUsername);
+
     ContractResponseDTO updateContract(Long contractId, ContractRequestDTO request);
     ContractResponseDTO updateContractStatus(Long contractId, ContractStatus status);
- 
     ContractResponseDTO vendorRespondToContract(Long contractId, String action, String remarks, Long vendorId);
- 
     void deleteContract(Long contractId);
 
     ContractTermResponseDTO addContractTerm(Long contractId, ContractTermRequestDTO request);

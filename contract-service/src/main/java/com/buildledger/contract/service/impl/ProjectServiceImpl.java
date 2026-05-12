@@ -107,10 +107,10 @@ public class ProjectServiceImpl implements ProjectService {
                 && request.getEndDate().isBefore(request.getStartDate()))
             throw new BadRequestException("End date cannot be before start date");
 
-        // CONFLICT 1 resolved: use project.getManagerUsername() — getManagerUsername() helper does not exist
-        List<String> changes       = new ArrayList<>();
-        String managerUsername     = project.getManagerUsername() != null ? project.getManagerUsername() : "";
-        String managerName         = project.getManagerName();
+        List<String> changes        = new ArrayList<>();
+        String       managerUsername = project.getManagerUsername() != null
+                ? project.getManagerUsername() : "";
+        String       managerName    = project.getManagerName();
 
         if (request.getName() != null && !request.getName().equals(project.getName())) {
             changes.add("Name: '" + project.getName() + "' → '" + request.getName() + "'");
@@ -136,12 +136,10 @@ public class ProjectServiceImpl implements ProjectService {
             changes.add("End date: " + project.getEndDate() + " → " + request.getEndDate());
             project.setEndDate(request.getEndDate());
         }
-        // CONFLICT 2 resolved: keep actualEndDate block from incoming branch
         if (request.getActualEndDate() != null) {
             project.setActualEndDate(request.getActualEndDate());
         }
 
-        // Manager reassignment
         if (request.getManagerId() != null && !request.getManagerId().equals(project.getManagerId())) {
             Map<String, String> newInfo     = validateAndGetManagerInfo(request.getManagerId());
             String              newName     = newInfo.get("name");
@@ -152,17 +150,15 @@ public class ProjectServiceImpl implements ProjectService {
             project.setManagerName(newName);
             project.setManagerUsername(newUsername);
 
-            // Notify new manager of assignment
             notificationProducer.send("contract-events", NotificationEvent.builder()
                     .recipientEmail(newUsername).recipientName(newName)
-                    .type("PROJECT_MANAGER_REASSIGNED")
+                    .type("PROJECT_CREATED")
                     .subject("You have been assigned to project: " + project.getName())
                     .message("Dear " + newName + ", you have been assigned as Project Manager for '"
                             + project.getName() + "'.")
                     .referenceId(String.valueOf(project.getProjectId()))
                     .referenceType("PROJECT").build());
 
-            // CONFLICT 4 resolved: use newUsername/newName — main branch referenced undefined variables
             managerUsername = newUsername;
             managerName     = newName;
         }
@@ -217,58 +213,13 @@ public class ProjectServiceImpl implements ProjectService {
         project.setStatus(newStatus);
         ProjectResponseDTO result = mapToResponse(projectRepository.save(project));
 
-        // CONFLICT 5 resolved: use project.getManagerUsername() (getManagerUsername() helper does not exist)
-        // Keep rich per-transition notification types from main branch, wired into the send call
-        String managerUsername = project.getManagerUsername() != null ? project.getManagerUsername() : "";
-        String managerName     = project.getManagerName();
-
-        String notifType;
-        String notifSubject;
-        String notifMessage;
-
-        if (newStatus == ProjectStatus.ACTIVE && current == ProjectStatus.PLANNING) {
-            notifType    = "PROJECT_ACTIVATED";
-            notifSubject = "Project activated: " + project.getName();
-            notifMessage = "Dear " + managerName + ", your project '"
-                    + project.getName() + "' has been ACTIVATED. Work can now begin!";
-
-        } else if (newStatus == ProjectStatus.ON_HOLD) {
-            notifType    = "PROJECT_PUT_ON_HOLD";
-            notifSubject = "Project put on hold: " + project.getName();
-            notifMessage = "Dear " + managerName + ", your project '"
-                    + project.getName() + "' has been put ON HOLD by admin.";
-
-        } else if (newStatus == ProjectStatus.ACTIVE && current == ProjectStatus.ON_HOLD) {
-            notifType    = "PROJECT_RESUMED";
-            notifSubject = "Project resumed: " + project.getName();
-            notifMessage = "Dear " + managerName + ", your project '"
-                    + project.getName() + "' has been RESUMED. Work can continue!";
-
-        } else if (newStatus == ProjectStatus.COMPLETED) {
-            notifType    = "PROJECT_COMPLETED";
-            notifSubject = "Project completed: " + project.getName();
-            notifMessage = "Dear " + managerName + ", your project '"
-                    + project.getName() + "' has been marked as COMPLETED. "
-                    + "Completion date: " + project.getActualEndDate();
-
-        } else if (newStatus == ProjectStatus.CANCELLED) {
-            notifType    = "PROJECT_CANCELLED";
-            notifSubject = "Project cancelled: " + project.getName();
-            notifMessage = "Dear " + managerName + ", your project '"
-                    + project.getName() + "' has been CANCELLED by admin.";
-
-        } else {
-            notifType    = "PROJECT_STATUS_CHANGED";
-            notifSubject = "Project status updated: " + project.getName();
-            notifMessage = "Dear " + managerName + ", project '"
-                    + project.getName() + "' status changed from " + current + " to " + newStatus + ".";
-        }
-
+        String username = project.getManagerUsername() != null ? project.getManagerUsername() : "";
         notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(managerUsername).recipientName(managerName)
-                .type(notifType)
-                .subject(notifSubject)
-                .message(notifMessage)
+                .recipientEmail(username).recipientName(project.getManagerName())
+                .type("PROJECT_STATUS_CHANGED")
+                .subject("Project status updated: " + project.getName())
+                .message("Dear " + project.getManagerName() + ", project '" + project.getName()
+                        + "' status changed from " + current + " to " + newStatus + ".")
                 .referenceId(String.valueOf(project.getProjectId()))
                 .referenceType("PROJECT").build());
 
@@ -277,26 +228,8 @@ public class ProjectServiceImpl implements ProjectService {
 
     @Override
     public void deleteProject(Long projectId) {
-        // CONFLICT 6 resolved: keep delete notification from main branch,
-        // fix getManagerUsername() → project.getManagerUsername()
-        Project project      = findById(projectId);
-        String managerUsername = project.getManagerUsername() != null ? project.getManagerUsername() : "";
-        String managerName   = project.getManagerName();
-        String projectName   = project.getName();
-
-        projectRepository.delete(project);
+        projectRepository.delete(findById(projectId));
         log.info("Project deleted: id={}", projectId);
-
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(managerUsername)
-                .recipientName(managerName)
-                .type("PROJECT_DELETED")
-                .subject("Project deleted: " + projectName)
-                .message("Dear " + managerName + ", project '"
-                        + projectName + "' has been permanently deleted by admin.")
-                .referenceId(String.valueOf(projectId))
-                .referenceType("PROJECT")
-                .build());
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

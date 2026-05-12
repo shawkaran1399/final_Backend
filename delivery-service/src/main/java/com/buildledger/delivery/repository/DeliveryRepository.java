@@ -10,6 +10,6 @@ import java.util.List;
 public interface DeliveryRepository extends JpaRepository<Delivery, Long> {
     List<Delivery> findByContractId(Long contractId);
     List<Delivery> findByStatus(DeliveryStatus status);
+    // Used by DeliveryOverdueScheduler — finds PENDING + DELAYED deliveries in one query
     List<Delivery> findByStatusIn(List<DeliveryStatus> statuses);
 }
-

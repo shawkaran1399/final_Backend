@@ -33,14 +33,16 @@ public class ContractController {
     public ResponseEntity<ApiResponseDTO<ContractResponseDTO>> createContract(
             @Valid @RequestBody ContractRequestDTO request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponseDTO.success("Contract created successfully", contractService.createContract(request)));
+                .body(ApiResponseDTO.success("Contract created successfully",
+                        contractService.createContract(request)));
     }
 
     @GetMapping
-    @Operation(summary = "Get all contracts [ADMIN only]")
     @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Get all contracts [ADMIN only]")
     public ResponseEntity<ApiResponseDTO<List<ContractResponseDTO>>> getAllContracts() {
-        return ResponseEntity.ok(ApiResponseDTO.success("Contracts retrieved", contractService.getAllContracts()));
+        return ResponseEntity.ok(ApiResponseDTO.success("Contracts retrieved",
+                contractService.getAllContracts()));
     }
 
     /**
@@ -52,62 +54,88 @@ public class ContractController {
     @Operation(summary = "Get contracts for the logged-in PM's projects [PROJECT_MANAGER only]")
     public ResponseEntity<ApiResponseDTO<List<ContractResponseDTO>>> getMyContracts(
             Authentication authentication) {
-        String managerUsername = authentication.getName();
         return ResponseEntity.ok(ApiResponseDTO.success("Contracts retrieved",
-                contractService.getContractsByManagerUsername(managerUsername)));
+                contractService.getContractsByManagerUsername(authentication.getName())));
+    }
+
+    /**
+     * VENDOR — sees only contracts assigned to them.
+     * Used in DeliveryTracking so vendor can see their ACTIVE contracts in the dropdown.
+     * Looks up vendorId from vendor-service using the JWT username, then fetches contracts.
+     */
+    @GetMapping("/vendor/my")
+    @PreAuthorize("hasRole('VENDOR')")
+    @Operation(summary = "Get contracts for the logged-in vendor [VENDOR only]")
+    public ResponseEntity<ApiResponseDTO<List<ContractResponseDTO>>> getMyVendorContracts(
+            Authentication authentication) {
+        String vendorUsername = authentication.getName();
+        return ResponseEntity.ok(ApiResponseDTO.success("Contracts retrieved",
+                contractService.getContractsByVendorUsername(vendorUsername)));
     }
 
     @GetMapping("/{contractId}")
     @Operation(summary = "Get contract by ID [ALL roles]")
-    public ResponseEntity<ApiResponseDTO<ContractResponseDTO>> getContractById(@PathVariable Long contractId) {
-        return ResponseEntity.ok(ApiResponseDTO.success("Contract retrieved", contractService.getContractById(contractId)));
+    public ResponseEntity<ApiResponseDTO<ContractResponseDTO>> getContractById(
+            @PathVariable Long contractId) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Contract retrieved",
+                contractService.getContractById(contractId)));
     }
 
     @GetMapping("/vendor/{vendorId}")
-    @Operation(summary = "Get contracts by vendor [ALL roles]")
-    public ResponseEntity<ApiResponseDTO<List<ContractResponseDTO>>> getContractsByVendor(@PathVariable Long vendorId) {
-        return ResponseEntity.ok(ApiResponseDTO.success("Contracts retrieved", contractService.getContractsByVendor(vendorId)));
+    @Operation(summary = "Get contracts by vendor ID [ALL roles]")
+    public ResponseEntity<ApiResponseDTO<List<ContractResponseDTO>>> getContractsByVendor(
+            @PathVariable Long vendorId) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Contracts retrieved",
+                contractService.getContractsByVendor(vendorId)));
     }
 
     @GetMapping("/project/{projectId}")
     @Operation(summary = "Get contracts by project [ALL roles]")
-    public ResponseEntity<ApiResponseDTO<List<ContractResponseDTO>>> getContractsByProject(@PathVariable Long projectId) {
-        return ResponseEntity.ok(ApiResponseDTO.success("Contracts retrieved", contractService.getContractsByProject(projectId)));
+    public ResponseEntity<ApiResponseDTO<List<ContractResponseDTO>>> getContractsByProject(
+            @PathVariable Long projectId) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Contracts retrieved",
+                contractService.getContractsByProject(projectId)));
     }
 
     @GetMapping("/project/{projectId}/budget-summary")
     @Operation(summary = "Get budget summary for a project [ALL roles]")
-    public ResponseEntity<ApiResponseDTO<BudgetSummaryDTO>> getProjectBudgetSummary(@PathVariable Long projectId) {
+    public ResponseEntity<ApiResponseDTO<BudgetSummaryDTO>> getProjectBudgetSummary(
+            @PathVariable Long projectId) {
         return ResponseEntity.ok(ApiResponseDTO.success("Budget summary retrieved",
                 contractService.getProjectBudgetSummary(projectId)));
     }
 
     @GetMapping("/status/{status}")
     @Operation(summary = "Get contracts by status [ALL roles]")
-    public ResponseEntity<ApiResponseDTO<List<ContractResponseDTO>>> getContractsByStatus(@PathVariable ContractStatus status) {
-        return ResponseEntity.ok(ApiResponseDTO.success("Contracts retrieved", contractService.getContractsByStatus(status)));
+    public ResponseEntity<ApiResponseDTO<List<ContractResponseDTO>>> getContractsByStatus(
+            @PathVariable ContractStatus status) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Contracts retrieved",
+                contractService.getContractsByStatus(status)));
     }
 
     @PutMapping("/{contractId}")
     @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER')")
     @Operation(summary = "Update contract [ADMIN / PROJECT_MANAGER] – DRAFT only")
     public ResponseEntity<ApiResponseDTO<ContractResponseDTO>> updateContract(
-            @PathVariable Long contractId, @Valid @RequestBody ContractRequestDTO request) {
-        return ResponseEntity.ok(ApiResponseDTO.success("Contract updated", contractService.updateContract(contractId, request)));
+            @PathVariable Long contractId,
+            @Valid @RequestBody ContractRequestDTO request) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Contract updated",
+                contractService.updateContract(contractId, request)));
     }
 
     @PatchMapping("/{contractId}/status")
     @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER')")
     @Operation(summary = "Update contract status [ADMIN / PROJECT_MANAGER]")
     public ResponseEntity<ApiResponseDTO<ContractResponseDTO>> updateContractStatus(
-            @PathVariable Long contractId, @RequestParam ContractStatus status) {
+            @PathVariable Long contractId,
+            @RequestParam ContractStatus status) {
         return ResponseEntity.ok(ApiResponseDTO.success("Contract status updated",
                 contractService.updateContractStatus(contractId, status)));
     }
 
     @PatchMapping("/{contractId}/respond")
     @PreAuthorize("hasRole('VENDOR')")
-    @Operation(summary = "Vendor accept or reject a PENDING contract [VENDOR]")
+    @Operation(summary = "Vendor accept or reject a PENDING contract [VENDOR only]")
     public ResponseEntity<ApiResponseDTO<ContractResponseDTO>> vendorRespond(
             @PathVariable Long contractId,
             @RequestParam String action,
@@ -130,23 +158,29 @@ public class ContractController {
     @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER')")
     @Operation(summary = "Add contract term [ADMIN / PROJECT_MANAGER]")
     public ResponseEntity<ApiResponseDTO<ContractTermResponseDTO>> addContractTerm(
-            @PathVariable Long contractId, @Valid @RequestBody ContractTermRequestDTO request) {
+            @PathVariable Long contractId,
+            @Valid @RequestBody ContractTermRequestDTO request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponseDTO.success("Contract term added", contractService.addContractTerm(contractId, request)));
+                .body(ApiResponseDTO.success("Contract term added",
+                        contractService.addContractTerm(contractId, request)));
     }
 
     @GetMapping("/{contractId}/terms")
     @Operation(summary = "Get contract terms [ALL roles]")
-    public ResponseEntity<ApiResponseDTO<List<ContractTermResponseDTO>>> getContractTerms(@PathVariable Long contractId) {
-        return ResponseEntity.ok(ApiResponseDTO.success("Contract terms retrieved", contractService.getContractTerms(contractId)));
+    public ResponseEntity<ApiResponseDTO<List<ContractTermResponseDTO>>> getContractTerms(
+            @PathVariable Long contractId) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Contract terms retrieved",
+                contractService.getContractTerms(contractId)));
     }
 
     @PutMapping("/terms/{termId}")
     @PreAuthorize("hasRole('ADMIN') or hasRole('PROJECT_MANAGER')")
     @Operation(summary = "Edit contract term [ADMIN / PROJECT_MANAGER]")
     public ResponseEntity<ApiResponseDTO<ContractTermResponseDTO>> editContractTerm(
-            @PathVariable Long termId, @Valid @RequestBody ContractTermRequestDTO request) {
-        return ResponseEntity.ok(ApiResponseDTO.success("Contract term updated", contractService.editContractTerm(termId, request)));
+            @PathVariable Long termId,
+            @Valid @RequestBody ContractTermRequestDTO request) {
+        return ResponseEntity.ok(ApiResponseDTO.success("Contract term updated",
+                contractService.editContractTerm(termId, request)));
     }
 
     @DeleteMapping("/terms/{termId}")

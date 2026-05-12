@@ -8,7 +8,6 @@ import java.time.LocalDate;
 @Data
 public class ProjectRequestDTO {
 
-    @NotBlank(message = "Project name is required")
     @Size(min = 3, max = 100, message = "Project name must be between 3 and 100 characters")
     private String name;
 
@@ -22,11 +21,11 @@ public class ProjectRequestDTO {
     private BigDecimal budget;
 
     private LocalDate startDate;
+
     private LocalDate endDate;
+
     private LocalDate actualEndDate;
 
-    @NotNull(message = "Manager ID is required")
-    @Positive(message = "Manager ID must be a positive number")
     private Long managerId;
 
     private String managerName;

@@ -10,6 +10,6 @@ import java.util.List;
 public interface ServiceRecordRepository extends JpaRepository<ServiceRecord, Long> {
     List<ServiceRecord> findByContractId(Long contractId);
     List<ServiceRecord> findByStatus(ServiceStatus status);
+    // Used by DeliveryOverdueScheduler — finds PENDING + IN_PROGRESS services
     List<ServiceRecord> findByStatusIn(List<ServiceStatus> statuses);
 }
-

@@ -8,15 +8,15 @@ import java.time.LocalDateTime;
 
 @Data @Builder @NoArgsConstructor @AllArgsConstructor
 public class DeliveryResponseDTO {
-    private Long deliveryId;
-    private Long contractId;
-    private LocalDate date;
-    private String item;
-    private BigDecimal quantity;
-    private String unit;
-    private String remarks;
+    private Long          deliveryId;
+    private Long          contractId;
+    private LocalDate     date;
+    private String        item;
+    private BigDecimal    quantity;
+    private String        unit;
+    private BigDecimal    price;       // ← milestone price for invoice generation
+    private String        remarks;
     private DeliveryStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
-

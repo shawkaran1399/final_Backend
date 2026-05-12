@@ -1,6 +1,5 @@
 package com.buildledger.iam.service;
 
-import com.buildledger.iam.dto.request.ChangePasswordRequestDTO;
 import com.buildledger.iam.dto.request.CreateUserRequestDTO;
 import com.buildledger.iam.dto.request.UpdateUserRequestDTO;
 import com.buildledger.iam.dto.response.UserResponseDTO;
@@ -16,7 +15,6 @@ public interface UserService {
     List<UserResponseDTO> getUsersByRole(Role role);
     UserResponseDTO updateUser(Long userId, UpdateUserRequestDTO request);
     void deleteUser(Long userId);
-    void changePassword(ChangePasswordRequestDTO request);
 
     /** Called internally by vendor-service after document approval */
     UserResponseDTO createVendorUser(String username, String encodedPassword,

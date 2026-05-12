@@ -6,8 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import java.security.Key;
 
-@Component
-@Slf4j
+@Component @Slf4j
 public class JwtUtils {
     @Value("${jwt.secret}") private String jwtSecret;
     public boolean validateToken(String t) {

@@ -20,7 +20,7 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-class AuthServiceImpl implements AuthService {
+ class AuthServiceImpl implements AuthService {
 
     private final AuthenticationManager authenticationManager;
     private final JwtUtils jwtUtils;
@@ -34,25 +34,13 @@ class AuthServiceImpl implements AuthService {
         log.info("Login attempt for: {}", request.getUsername());
 
         Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getUsername(), request.getPassword())
+                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
         );
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
         User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "User", "username", request.getUsername()));
-
-        // ← Check if password change is required BEFORE generating JWT
-        if (Boolean.TRUE.equals(user.getPasswordChangeRequired())) {
-            log.info("User {} must change password before login", user.getUsername());
-            return LoginResponseDTO.builder()
-                    .requiresPasswordChange(true)
-                    .username(user.getUsername())
-                    .message("Password change required before accessing the system.")
-                    .build();
-        }
+                .orElseThrow(() -> new ResourceNotFoundException("User", "username", request.getUsername()));
 
         String jwt = jwtUtils.generateToken(userDetails, user.getUserId(), user.getRole());
         log.info("User {} logged in with role {}", user.getUsername(), user.getRole());
@@ -67,4 +55,6 @@ class AuthServiceImpl implements AuthService {
                 .role(user.getRole())
                 .build();
     }
+
 }
+

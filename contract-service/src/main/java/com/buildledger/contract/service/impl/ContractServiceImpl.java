@@ -118,6 +118,52 @@ public class ContractServiceImpl implements ContractService {
                 .collect(Collectors.toList());
     }
 
+    // ── Get contracts for the logged-in Vendor ────────────────────────────────
+
+    /**
+     * Returns contracts assigned to the logged-in vendor (by username).
+     * Used by GET /contracts/vendor/my so the vendor can see their ACTIVE contracts
+     * in the DeliveryTracking dropdown — without hitting the admin-only GET /contracts.
+     *
+     * Flow:
+     *   1. vendorUsername (JWT principal) → vendorServiceClient.getVendorByUsername()
+     *   2. Extract vendorId from response
+     *   3. contractRepository.findByVendorId(vendorId)
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<ContractResponseDTO> getContractsByVendorUsername(String vendorUsername) {
+        log.info("Fetching contracts for vendor username: {}", vendorUsername);
+
+        ApiResponseDTO<Map<String, Object>> response;
+        try {
+            response = vendorServiceClient.getVendorByUsername(vendorUsername);
+        } catch (FeignException.NotFound e) {
+            log.warn("Vendor not found for username: {}", vendorUsername);
+            return List.of();
+        } catch (Exception e) {
+            throw new ServiceUnavailableException("Vendor Service is currently unavailable.");
+        }
+
+        if (VendorServiceFallback.MARKER.equals(response.getMessage()))
+            throw new ServiceUnavailableException("Vendor Service is currently unavailable.");
+
+        if (!response.isSuccess() || response.getData() == null)
+            return List.of();
+
+        // Extract vendorId from vendor-service response
+        Object vendorIdObj = response.getData().get("vendorId");
+        if (vendorIdObj == null) return List.of();
+
+        Long vendorId = vendorIdObj instanceof Integer
+                ? ((Integer) vendorIdObj).longValue()
+                : ((Number) vendorIdObj).longValue();
+
+        return contractRepository.findByVendorId(vendorId).stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
     // ── Create ────────────────────────────────────────────────────────────────
 
     public ContractResponseDTO createContract(ContractRequestDTO request) {
@@ -248,6 +294,7 @@ public class ContractServiceImpl implements ContractService {
 
         if (!current.canTransitionTo(newStatus))
             throw new BadRequestException("Invalid transition: " + current + " → " + newStatus);
+
         contract.setStatus(newStatus);
         ContractResponseDTO result = mapToResponse(contractRepository.save(contract));
 
@@ -314,7 +361,6 @@ public class ContractServiceImpl implements ContractService {
     }
 
     // ── Delete ────────────────────────────────────────────────────────────────
-
 
     public void deleteContract(Long contractId) {
         Contract contract = findById(contractId);
@@ -441,7 +487,6 @@ public class ContractServiceImpl implements ContractService {
     private ContractResponseDTO mapToResponse(Contract c) {
         return ContractResponseDTO.builder()
                 .contractId(c.getContractId()).vendorId(c.getVendorId()).vendorName(c.getVendorName())
-                .vendorUsername(c.getVendorUsername())
                 .projectId(c.getProjectId()).projectName(c.getProjectName())
                 .startDate(c.getStartDate()).endDate(c.getEndDate()).value(c.getValue())
                 .status(c.getStatus()).description(c.getDescription()).vendorRemarks(c.getVendorRemarks())

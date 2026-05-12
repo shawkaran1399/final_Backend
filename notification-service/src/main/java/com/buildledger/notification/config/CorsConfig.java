@@ -22,5 +22,3 @@ public class CorsConfig {
         return new CorsFilter(source);
     }
 }
-
-//this method is responsible for returning the corsfilterobject and allowing your frontemd to call the all the apis of the backend without blocking by the browser

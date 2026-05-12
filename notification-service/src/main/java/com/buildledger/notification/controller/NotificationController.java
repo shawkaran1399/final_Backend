@@ -35,13 +35,6 @@ public class NotificationController {
         return ResponseEntity.ok(notificationService.getPending());
     }
 
-//    @GetMapping("/test")
-//    @PreAuthorize("isAuthenticated()")
-//    @Operation(summary = "Test endpoint")
-//    public ResponseEntity<List<Notification>> test() {
-//        return ResponseEntity.ok(notificationService.getAll());
-//    }
-
     @GetMapping("/my")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get my own notifications [All roles]")
@@ -59,19 +52,17 @@ public class NotificationController {
 
     @PatchMapping("/{id}/read")
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Mark a notification as read")
+    @Operation(summary = "Mark notification as read [All roles]")
     public ResponseEntity<Notification> markAsRead(@PathVariable Long id) {
         return ResponseEntity.ok(notificationService.markAsRead(id));
     }
 
     @GetMapping("/unread-count")
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get unread notification count")
+    @Operation(summary = "Get unread notification count [All roles]")
     public ResponseEntity<Long> getUnreadCount(Authentication authentication) {
         String email = authentication.getName();
-        boolean isAdmin = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
-        return ResponseEntity.ok(notificationService.getUnreadCount(email, isAdmin));
+        return ResponseEntity.ok(notificationService.getUnreadCount(email));
     }
 }
 

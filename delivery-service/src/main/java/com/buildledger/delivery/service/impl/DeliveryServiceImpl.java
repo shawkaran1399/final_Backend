@@ -1,22 +1,23 @@
 package com.buildledger.delivery.service.impl;
 
+import com.buildledger.delivery.dto.response.ContractBudgetSummaryDTO;
 import com.buildledger.delivery.event.NotificationEvent;
 import com.buildledger.delivery.event.NotificationProducer;
 import com.buildledger.delivery.dto.request.DeliveryRequestDTO;
 import com.buildledger.delivery.dto.response.ApiResponseDTO;
 import com.buildledger.delivery.dto.response.DeliveryResponseDTO;
 import com.buildledger.delivery.entity.Delivery;
+import com.buildledger.delivery.entity.ServiceRecord;
 import com.buildledger.delivery.enums.DeliveryStatus;
 import com.buildledger.delivery.exception.BadRequestException;
 import com.buildledger.delivery.exception.ResourceNotFoundException;
 import com.buildledger.delivery.exception.ServiceUnavailableException;
-import com.buildledger.delivery.feign.ComplianceServiceClient;
-import com.buildledger.delivery.feign.ComplianceServiceFallback;
 import com.buildledger.delivery.feign.ContractServiceClient;
 import com.buildledger.delivery.feign.ContractServiceFallback;
 import com.buildledger.delivery.feign.VendorServiceClient;
 import com.buildledger.delivery.feign.VendorServiceFallback;
 import com.buildledger.delivery.repository.DeliveryRepository;
+import com.buildledger.delivery.repository.ServiceRecordRepository;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +26,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -35,11 +37,13 @@ import java.util.stream.Collectors;
 @Transactional
 class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliveryService {
 
-    private final DeliveryRepository deliveryRepository;
-    private final ContractServiceClient contractServiceClient;
-    private final VendorServiceClient vendorServiceClient;
-    private final ComplianceServiceClient complianceServiceClient;
-    private final NotificationProducer notificationProducer;
+    private final DeliveryRepository       deliveryRepository;
+    private final ServiceRecordRepository  serviceRecordRepository;
+    private final ContractServiceClient    contractServiceClient;
+    private final VendorServiceClient      vendorServiceClient;
+    private final NotificationProducer     notificationProducer;
+
+    // ── Create Delivery ───────────────────────────────────────────────────────
 
     public DeliveryResponseDTO createDelivery(DeliveryRequestDTO request) {
         log.info("Creating delivery for contract {}", request.getContractId());
@@ -47,10 +51,13 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         validateDeliveryDateInWindow(request.getDate(), contractData);
         validateVendorOwnership(contractData);
 
-        // ← get vendor and manager info from contract data
-        String vendorUsername   = String.valueOf(contractData.getOrDefault("vendorUsername", ""));
-        String vendorName       = String.valueOf(contractData.getOrDefault("vendorName", "Vendor"));
-        String managerUsername  = String.valueOf(contractData.getOrDefault("managerUsername", ""));
+        // ── Budget validation ─────────────────────────────────────────────────
+        // Delivery price must not exceed remaining contract budget
+        validateContractBudget(request.getContractId(), request.getPrice(), contractData, null);
+
+        // Extract cached usernames from contract data for scheduler notifications
+        String managerUsername = (String) contractData.getOrDefault("managerUsername", "");
+        String vendorUsername  = (String) contractData.getOrDefault("vendorUsername",  "");
 
         Delivery delivery = Delivery.builder()
                 .contractId(request.getContractId())
@@ -58,30 +65,65 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
                 .item(request.getItem())
                 .quantity(request.getQuantity())
                 .unit(request.getUnit())
+                .price(request.getPrice())
                 .remarks(request.getRemarks())
-                .vendorUsername(vendorUsername)    // ← store
-                .managerUsername(managerUsername)  // ← store
+                .managerUsername(managerUsername)
+                .vendorUsername(vendorUsername)
                 .build();
 
         DeliveryResponseDTO result = mapToResponse(deliveryRepository.save(delivery));
 
-        // ← DELIVERY_CREATED → notify vendor
         notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail(vendorUsername)
-                .recipientName(vendorName)
+                .recipientEmail("").recipientName("Admin")
                 .type("DELIVERY_CREATED")
-                .subject("New delivery scheduled for your contract #" + request.getContractId())
-                .message("Dear " + vendorName + ", a new delivery has been scheduled for your contract #"
-                        + request.getContractId()
+                .subject("New delivery scheduled for contract #" + request.getContractId())
+                .message("A new delivery has been scheduled for contract #" + request.getContractId()
                         + ". Item: " + request.getItem()
                         + ", Quantity: " + request.getQuantity() + " " + request.getUnit()
+                        + ", Price: ₹" + request.getPrice()
                         + ", Expected date: " + request.getDate())
                 .referenceId(String.valueOf(result.getDeliveryId()))
-                .referenceType("DELIVERY")
-                .build());
+                .referenceType("DELIVERY").build());
 
         return result;
     }
+
+    // ── Contract Budget Summary ───────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public ContractBudgetSummaryDTO getContractBudgetSummary(Long contractId) {
+        Map<String, Object> contractData = validateContractActive(contractId);
+
+        // Get contract value from Feign response
+        BigDecimal contractValue = extractBigDecimal(contractData.get("value"));
+
+        // Sum all delivery prices for this contract
+        List<Delivery>      deliveries = deliveryRepository.findByContractId(contractId);
+        List<ServiceRecord> services   = serviceRecordRepository.findByContractId(contractId);
+
+        BigDecimal deliverySpent = deliveries.stream()
+                .map(d -> d.getPrice() != null ? d.getPrice() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal serviceSpent = services.stream()
+                .map(s -> s.getPrice() != null ? s.getPrice() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalSpent = deliverySpent.add(serviceSpent);
+        BigDecimal remaining  = contractValue.subtract(totalSpent);
+
+        return ContractBudgetSummaryDTO.builder()
+                .contractId(contractId)
+                .contractValue(contractValue)
+                .spent(totalSpent)
+                .remaining(remaining)
+                .overBudget(remaining.compareTo(BigDecimal.ZERO) < 0)
+                .deliveryCount(deliveries.size())
+                .serviceCount(services.size())
+                .build();
+    }
+
+    // ── Read ──────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public DeliveryResponseDTO getDeliveryById(Long deliveryId) {
@@ -96,171 +138,131 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
     @Transactional(readOnly = true)
     public List<DeliveryResponseDTO> getDeliveriesByContract(Long contractId) {
         validateContractActive(contractId);
-        return deliveryRepository.findByContractId(contractId).stream()
-                .map(this::mapToResponse).collect(Collectors.toList());
+        return deliveryRepository.findByContractId(contractId).stream().map(this::mapToResponse).collect(Collectors.toList());
     }
 
-    @Transactional(readOnly = true)
-    public List<DeliveryResponseDTO> getDeliveriesByStatus(DeliveryStatus status) {
-        return deliveryRepository.findByStatus(status).stream()
-                .map(this::mapToResponse).collect(Collectors.toList());
-    }
+    // ── Status transitions ────────────────────────────────────────────────────
 
     public DeliveryResponseDTO updateDeliveryStatus(Long deliveryId, DeliveryStatus nextStatus) {
-        Delivery delivery = findById(deliveryId);
-        DeliveryStatus current = delivery.getStatus();
+        Delivery       delivery = findById(deliveryId);
+        DeliveryStatus current  = delivery.getStatus();
 
         if (current == nextStatus) return mapToResponse(delivery);
 
         if (!current.canTransitionTo(nextStatus)) {
             throw new BadRequestException(
                     "Invalid status transition from " + current + " to " + nextStatus +
-                            ". Allowed transitions: PENDING→MARKED_DELIVERED|DELAYED, " +
-                            "MARKED_DELIVERED→ACCEPTED|REJECTED, DELAYED→MARKED_DELIVERED.");
+                            ". Allowed: PENDING→MARKED_DELIVERED|DELAYED, MARKED_DELIVERED→ACCEPTED|REJECTED, DELAYED→MARKED_DELIVERED.");
         }
 
-        if (nextStatus == DeliveryStatus.ACCEPTED || nextStatus == DeliveryStatus.REJECTED) {
+        if (nextStatus == DeliveryStatus.ACCEPTED || nextStatus == DeliveryStatus.REJECTED)
             requireRole("PROJECT_MANAGER", "ADMIN");
-        }
-        if (nextStatus == DeliveryStatus.MARKED_DELIVERED || nextStatus == DeliveryStatus.DELAYED) {
+        if (nextStatus == DeliveryStatus.MARKED_DELIVERED || nextStatus == DeliveryStatus.DELAYED)
             requireRole("VENDOR", "ADMIN");
-        }
-
-        if (nextStatus == DeliveryStatus.ACCEPTED) {
-            requireCompliancePassed(delivery.getDeliveryId(), "DELIVERY_CHECK", "delivery");
-        }
 
         delivery.setStatus(nextStatus);
         DeliveryResponseDTO result = mapToResponse(deliveryRepository.save(delivery));
 
+        String type, subject, message;
         if (nextStatus == DeliveryStatus.ACCEPTED) {
-            // PM accepted → notify VENDOR
-            notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail(delivery.getVendorUsername())
-                    .recipientName("Vendor")
-                    .type("DELIVERY_ACCEPTED")
-                    .subject("Your delivery has been accepted")
-                    .message("Your delivery #" + delivery.getDeliveryId() + " for item '"
-                            + delivery.getItem() + "' has been ACCEPTED by the project manager.")
-                    .referenceId(String.valueOf(delivery.getDeliveryId()))
-                    .referenceType("DELIVERY")
-                    .build());
-
+            type = "DELIVERY_ACCEPTED"; subject = "Your delivery has been accepted";
+            message = "Your delivery #" + deliveryId + " for item '" + delivery.getItem() + "' has been ACCEPTED.";
         } else if (nextStatus == DeliveryStatus.REJECTED) {
-            // PM rejected → notify VENDOR
-            notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail(delivery.getVendorUsername())
-                    .recipientName("Vendor")
-                    .type("DELIVERY_REJECTED")
-                    .subject("Your delivery has been rejected")
-                    .message("Your delivery #" + delivery.getDeliveryId() + " for item '"
-                            + delivery.getItem() + "' has been REJECTED. "
-                            + "Please check with your project manager.")
-                    .referenceId(String.valueOf(delivery.getDeliveryId()))
-                    .referenceType("DELIVERY")
-                    .build());
-
+            type = "DELIVERY_REJECTED"; subject = "Your delivery has been rejected";
+            message = "Your delivery #" + deliveryId + " for item '" + delivery.getItem() + "' has been REJECTED.";
         } else if (nextStatus == DeliveryStatus.MARKED_DELIVERED) {
-            // Vendor marked delivered → notify PM
-            notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail(delivery.getManagerUsername())
-                    .recipientName("Project Manager")
-                    .type("DELIVERY_MARKED_DELIVERED")
-                    .subject("Delivery #" + deliveryId + " marked as delivered — action required")
-                    .message("Delivery #" + deliveryId + " for contract #" + delivery.getContractId()
-                            + " has been marked as delivered by the vendor."
-                            + " Item: " + delivery.getItem()
-                            + ". Please review and ACCEPT or REJECT.")
-                    .referenceId(String.valueOf(deliveryId))
-                    .referenceType("DELIVERY")
-                    .build());
-
-        } else if (nextStatus == DeliveryStatus.DELAYED) {
-            // ← NEW: Vendor marked delayed → notify PM
-            notificationProducer.send("delivery-events", NotificationEvent.builder()
-                    .recipientEmail(delivery.getManagerUsername())
-                    .recipientName("Project Manager")
-                    .type("DELIVERY_DELAYED")
-                    .subject("Delivery #" + deliveryId + " has been delayed")
-                    .message("Delivery #" + deliveryId + " for contract #" + delivery.getContractId()
-                            + " has been marked as DELAYED by the vendor."
-                            + " Item: " + delivery.getItem()
-                            + ". Original expected date: " + delivery.getDate())
-                    .referenceId(String.valueOf(deliveryId))
-                    .referenceType("DELIVERY")
-                    .build());
+            type = "DELIVERY_MARKED_DELIVERED"; subject = "Delivery #" + deliveryId + " marked as delivered";
+            message = "Delivery #" + deliveryId + " for contract #" + delivery.getContractId()
+                    + " has been marked as delivered. Item: " + delivery.getItem()
+                    + ". Awaiting acceptance from Project Manager.";
+        } else {
+            type = "DELIVERY_DELAYED"; subject = "Delivery #" + deliveryId + " marked as delayed";
+            message = "Delivery #" + deliveryId + " has been marked as DELAYED.";
         }
+
+        notificationProducer.send("delivery-events", NotificationEvent.builder()
+                .recipientEmail("").recipientName("Admin")
+                .type(type).subject(subject).message(message)
+                .referenceId(String.valueOf(deliveryId)).referenceType("DELIVERY").build());
 
         return result;
     }
 
     public DeliveryResponseDTO updateDelivery(Long deliveryId, DeliveryRequestDTO request) {
         Delivery delivery = findById(deliveryId);
-        if (delivery.getStatus() != DeliveryStatus.PENDING) {
+        if (delivery.getStatus() != DeliveryStatus.PENDING)
             throw new BadRequestException("Delivery details can only be updated when status is PENDING.");
-        }
+
+        Long targetContractId = request.getContractId() != null ? request.getContractId() : delivery.getContractId();
+
         if (request.getContractId() != null) {
             validateContractActive(request.getContractId());
             delivery.setContractId(request.getContractId());
         }
         if (request.getDate() != null) {
-            Map<String, Object> contractData = validateContractActive(
-                    request.getContractId() != null ? request.getContractId() : delivery.getContractId()
-            );
+            Map<String, Object> contractData = validateContractActive(targetContractId);
             validateDeliveryDateInWindow(request.getDate(), contractData);
             delivery.setDate(request.getDate());
         }
-        if (request.getItem() != null) delivery.setItem(request.getItem());
+        if (request.getPrice() != null) {
+            Map<String, Object> contractData = validateContractActive(targetContractId);
+            // Exclude current delivery from budget calculation to avoid double-counting
+            validateContractBudget(targetContractId, request.getPrice(), contractData, deliveryId);
+            delivery.setPrice(request.getPrice());
+        }
+        if (request.getItem()     != null) delivery.setItem(request.getItem());
         if (request.getQuantity() != null) delivery.setQuantity(request.getQuantity());
-        if (request.getUnit() != null) delivery.setUnit(request.getUnit());
-        if (request.getRemarks() != null) delivery.setRemarks(request.getRemarks());
+        if (request.getUnit()     != null) delivery.setUnit(request.getUnit());
+        if (request.getRemarks()  != null) delivery.setRemarks(request.getRemarks());
 
-        DeliveryResponseDTO result = mapToResponse(deliveryRepository.save(delivery));
-
-        // ← DELIVERY_UPDATED → notify vendor
-        notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail(delivery.getVendorUsername())
-                .recipientName("Vendor")
-                .type("DELIVERY_UPDATED")
-                .subject("Delivery #" + deliveryId + " has been updated")
-                .message("Delivery #" + deliveryId + " for contract #" + delivery.getContractId()
-                        + " has been updated. Item: " + delivery.getItem()
-                        + ", Quantity: " + delivery.getQuantity() + " " + delivery.getUnit()
-                        + ", Expected date: " + delivery.getDate())
-                .referenceId(String.valueOf(deliveryId))
-                .referenceType("DELIVERY")
-                .build());
-
-        return result;
+        return mapToResponse(deliveryRepository.save(delivery));
     }
 
     public void deleteDelivery(Long deliveryId) {
         Delivery delivery = findById(deliveryId);
-        if (delivery.getStatus() != DeliveryStatus.PENDING) {
+        if (delivery.getStatus() != DeliveryStatus.PENDING)
             throw new BadRequestException("Only PENDING deliveries can be deleted.");
-        }
-
-        String vendorUsername = delivery.getVendorUsername();
-        String contractId     = String.valueOf(delivery.getContractId());
-        String item           = delivery.getItem();
-
         deliveryRepository.delete(delivery);
-
-        // ← DELIVERY_DELETED → notify vendor
-        notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail(vendorUsername)
-                .recipientName("Vendor")
-                .type("DELIVERY_DELETED")
-                .subject("Delivery #" + deliveryId + " has been deleted")
-                .message("Delivery #" + deliveryId + " for contract #" + contractId
-                        + " has been permanently deleted."
-                        + " Item: " + item)
-                .referenceId(String.valueOf(deliveryId))
-                .referenceType("DELIVERY")
-                .build());
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Budget validation ─────────────────────────────────────────────────────
+
+    /**
+     * Validates that the new price does not exceed remaining contract budget.
+     * excludeDeliveryId: when updating, exclude this delivery to avoid double-counting.
+     *
+     * remaining = contractValue - sum(all delivery prices) - sum(all service prices)
+     * If new price > remaining → hard block
+     */
+    private void validateContractBudget(Long contractId, BigDecimal newPrice,
+                                        Map<String, Object> contractData, Long excludeDeliveryId) {
+        if (newPrice == null) return;
+
+        BigDecimal contractValue = extractBigDecimal(contractData.get("value"));
+        if (contractValue == null || contractValue.compareTo(BigDecimal.ZERO) == 0) return;
+
+        // Sum all existing delivery prices (excluding current if updating)
+        BigDecimal deliverySpent = deliveryRepository.findByContractId(contractId).stream()
+                .filter(d -> !d.getDeliveryId().equals(excludeDeliveryId))
+                .map(d -> d.getPrice() != null ? d.getPrice() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Sum all existing service prices
+        BigDecimal serviceSpent = serviceRecordRepository.findByContractId(contractId).stream()
+                .map(s -> s.getPrice() != null ? s.getPrice() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalSpent = deliverySpent.add(serviceSpent);
+        BigDecimal remaining  = contractValue.subtract(totalSpent);
+
+        if (newPrice.compareTo(remaining) > 0) {
+            throw new BadRequestException(
+                    "Delivery price (₹" + newPrice + ") exceeds remaining contract budget (₹" + remaining + "). "
+                            + "Contract value: ₹" + contractValue + ", Already allocated: ₹" + totalSpent + ".");
+        }
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
 
     private Map<String, Object> validateContractActive(Long contractId) {
         ApiResponseDTO<Map<String, Object>> response;
@@ -268,42 +270,34 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
             response = contractServiceClient.getContractById(contractId);
         } catch (FeignException.NotFound e) {
             throw new ResourceNotFoundException("Contract", "id", contractId);
-        } catch (FeignException e) {
-            throw new ServiceUnavailableException(
-                    "Contract Service is currently unavailable. Please try again later.");
         } catch (Exception e) {
-            throw new ServiceUnavailableException(
-                    "Contract Service is currently unavailable. Please try again later.");
+            throw new ServiceUnavailableException("Contract Service is currently unavailable.");
         }
-        if (ContractServiceFallback.MARKER.equals(response.getMessage())) {
-            throw new ServiceUnavailableException(
-                    "Contract Service is currently unavailable. Please try again later.");
-        }
-        if (!response.isSuccess() || response.getData() == null) {
+        if (ContractServiceFallback.MARKER.equals(response.getMessage()))
+            throw new ServiceUnavailableException("Contract Service is currently unavailable.");
+        if (!response.isSuccess() || response.getData() == null)
             throw new ResourceNotFoundException("Contract", "id", contractId);
-        }
-        Map<String, Object> data = response.getData();
-        String status = (String) data.get("status");
-        if (!"ACTIVE".equals(status)) {
+
+        Map<String, Object> data   = response.getData();
+        String              status = (String) data.get("status");
+        if (!"ACTIVE".equals(status))
             throw new BadRequestException(
-                    "Deliveries can only be logged against ACTIVE contracts. Contract "
-                            + contractId + " is currently " + status + ".");
-        }
+                    "Deliveries can only be logged against ACTIVE contracts. Contract " + contractId
+                            + " is currently " + status + ".");
         return data;
     }
 
-    private void validateDeliveryDateInWindow(java.time.LocalDate deliveryDate,
-                                              Map<String, Object> contractData) {
+    private void validateDeliveryDateInWindow(java.time.LocalDate deliveryDate, Map<String, Object> contractData) {
         if (deliveryDate == null) return;
-        Object endObj = contractData.get("endDate");
-        if (endObj == null) return;
-        java.time.LocalDate today       = java.time.LocalDate.now();
-        java.time.LocalDate contractEnd = java.time.LocalDate.parse(endObj.toString());
-        if (deliveryDate.isBefore(today) || deliveryDate.isAfter(contractEnd)) {
+        Object startObj = contractData.get("startDate");
+        Object endObj   = contractData.get("endDate");
+        if (startObj == null || endObj == null) return;
+        java.time.LocalDate contractStart = java.time.LocalDate.parse(startObj.toString());
+        java.time.LocalDate contractEnd   = java.time.LocalDate.parse(endObj.toString());
+        if (deliveryDate.isBefore(contractStart) || deliveryDate.isAfter(contractEnd))
             throw new BadRequestException(
-                    "Delivery date " + deliveryDate + " must be today or a future date within the contract end date ("
-                            + contractEnd + ").");
-        }
+                    "Delivery date " + deliveryDate + " is outside the contract period ("
+                            + contractStart + " to " + contractEnd + ").");
     }
 
     private void validateVendorOwnership(Map<String, Object> contractData) {
@@ -316,78 +310,48 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         Long authenticatedUserId = (Long) auth.getCredentials();
         if (authenticatedUserId == null) return;
 
-        Object vendorIdObj = contractData.get("vendorId");
+        Object vendorIdObj     = contractData.get("vendorId");
         if (vendorIdObj == null) return;
         Long contractVendorId = vendorIdObj instanceof Integer
-                ? ((Integer) vendorIdObj).longValue()
-                : ((Number) vendorIdObj).longValue();
+                ? ((Integer) vendorIdObj).longValue() : ((Number) vendorIdObj).longValue();
 
         ApiResponseDTO<Map<String, Object>> vendorResponse;
         try {
             vendorResponse = vendorServiceClient.getVendorById(contractVendorId);
         } catch (FeignException.NotFound e) {
             throw new ResourceNotFoundException("Vendor", "id", contractVendorId);
-        } catch (FeignException e) {
-            throw new ServiceUnavailableException(
-                    "Vendor Service is currently unavailable. Please try again later.");
         } catch (Exception e) {
-            throw new ServiceUnavailableException(
-                    "Vendor Service is currently unavailable. Please try again later.");
+            throw new ServiceUnavailableException("Vendor Service is currently unavailable.");
         }
-        if (VendorServiceFallback.MARKER.equals(vendorResponse.getMessage())) {
-            throw new ServiceUnavailableException(
-                    "Vendor Service is currently unavailable. Please try again later.");
-        }
-        if (!vendorResponse.isSuccess() || vendorResponse.getData() == null) {
+        if (VendorServiceFallback.MARKER.equals(vendorResponse.getMessage()))
+            throw new ServiceUnavailableException("Vendor Service is currently unavailable.");
+        if (!vendorResponse.isSuccess() || vendorResponse.getData() == null)
             throw new ResourceNotFoundException("Vendor", "id", contractVendorId);
-        }
-        Object userIdObj = vendorResponse.getData().get("userId");
+
+        Object userIdObj  = vendorResponse.getData().get("userId");
         if (userIdObj == null) return;
         Long vendorUserId = userIdObj instanceof Integer
-                ? ((Integer) userIdObj).longValue()
-                : ((Number) userIdObj).longValue();
-        if (!authenticatedUserId.equals(vendorUserId)) {
+                ? ((Integer) userIdObj).longValue() : ((Number) userIdObj).longValue();
+        if (!authenticatedUserId.equals(vendorUserId))
             throw new org.springframework.security.access.AccessDeniedException(
                     "Access denied: you do not own the vendor associated with this contract.");
-        }
     }
 
     private void requireRole(String... roles) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null)
-            throw new org.springframework.security.access.AccessDeniedException("Not authenticated");
+        if (auth == null) throw new org.springframework.security.access.AccessDeniedException("Not authenticated");
         boolean hasRole = auth.getAuthorities().stream()
-                .anyMatch(a -> {
-                    for (String role : roles) {
-                        if (a.getAuthority().equals("ROLE_" + role)) return true;
-                    }
-                    return false;
-                });
-        if (!hasRole) {
+                .anyMatch(a -> { for (String r : roles) if (a.getAuthority().equals("ROLE_" + r)) return true; return false; });
+        if (!hasRole)
             throw new org.springframework.security.access.AccessDeniedException(
                     "Access denied. Required roles: " + String.join(" or ", roles));
-        }
     }
 
-    private void requireCompliancePassed(Long referenceId, String checkType, String entityLabel) {
-        ApiResponseDTO<Boolean> response;
-        try {
-            response = complianceServiceClient.isCompliancePassed(referenceId, checkType);
-        } catch (Exception e) {
-            throw new BadRequestException(
-                    "Compliance Service is unavailable. Cannot accept " + entityLabel + " #" + referenceId
-                            + " until compliance check is confirmed.");
-        }
-        if (ComplianceServiceFallback.MARKER.equals(response.getMessage()) || response.getData() == null) {
-            throw new BadRequestException(
-                    "Compliance Service is unavailable. Cannot accept " + entityLabel + " #" + referenceId
-                            + " until compliance check is confirmed.");
-        }
-        if (!response.getData()) {
-            throw new BadRequestException(
-                    "Compliance check must be PASSED or WAIVED before accepting " + entityLabel + " #" + referenceId
-                            + ". Please ensure a " + checkType + " compliance record exists and is PASSED.");
-        }
+    private BigDecimal extractBigDecimal(Object value) {
+        if (value == null) return BigDecimal.ZERO;
+        if (value instanceof BigDecimal) return (BigDecimal) value;
+        try { return new BigDecimal(value.toString()); }
+        catch (Exception e) { return BigDecimal.ZERO; }
     }
 
     private Delivery findById(Long id) {
@@ -399,7 +363,7 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         return DeliveryResponseDTO.builder()
                 .deliveryId(d.getDeliveryId()).contractId(d.getContractId())
                 .date(d.getDate()).item(d.getItem()).quantity(d.getQuantity()).unit(d.getUnit())
-                .remarks(d.getRemarks()).status(d.getStatus())
+                .price(d.getPrice()).remarks(d.getRemarks()).status(d.getStatus())
                 .createdAt(d.getCreatedAt()).updatedAt(d.getUpdatedAt()).build();
     }
 }

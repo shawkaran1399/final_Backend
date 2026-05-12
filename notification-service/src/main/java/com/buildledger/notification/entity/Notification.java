@@ -31,11 +31,6 @@ public class Notification {
     @Column(name = "delivered", nullable = false)
     @Builder.Default private Boolean delivered = false;
 
-//    @Column(name = "delivered", nullable = false)
-//    @Builder.Default private Boolean delivered = false;
-
-    // ADD THIS ↓
-    // CORRECT - rename the column to avoid the reserved word
     @Column(name = "is_read", nullable = false)
     @Builder.Default private Boolean read = false;
 

@@ -1,6 +1,5 @@
 package com.buildledger.iam.controller;
 
-import com.buildledger.iam.dto.request.ChangePasswordRequestDTO;
 import com.buildledger.iam.dto.request.CreateUserRequestDTO;
 import com.buildledger.iam.dto.request.UpdateUserRequestDTO;
 import com.buildledger.iam.dto.response.ApiResponseDTO;
@@ -43,13 +42,6 @@ public class UserController {
         return ResponseEntity.ok(ApiResponseDTO.success("Users retrieved", userService.getAllUsers()));
     }
 
-    @PostMapping("/change-password")
-    @Operation(summary = "Change password [All roles]")
-    public ResponseEntity<ApiResponseDTO<String>> changePassword(
-            @Valid @RequestBody ChangePasswordRequestDTO request) {
-        userService.changePassword(request);
-        return ResponseEntity.ok(ApiResponseDTO.success("Password changed successfully. You can now log in."));
-    }
     @GetMapping("/{userId}")
     @Operation(summary = "Get user by ID [ALL roles]")
     public ResponseEntity<ApiResponseDTO<UserResponseDTO>> getUserById(@PathVariable Long userId) {

@@ -1,6 +1,5 @@
 package com.buildledger.iam.service.impl;
 
-import com.buildledger.iam.dto.request.ChangePasswordRequestDTO;
 import com.buildledger.iam.dto.request.CreateUserRequestDTO;
 import com.buildledger.iam.dto.request.UpdateUserRequestDTO;
 import com.buildledger.iam.dto.response.UserResponseDTO;
@@ -13,7 +12,6 @@ import com.buildledger.iam.exception.BadRequestException;
 import com.buildledger.iam.exception.DuplicateResourceException;
 import com.buildledger.iam.exception.ResourceNotFoundException;
 import com.buildledger.iam.repository.UserRepository;
-import com.buildledger.iam.service.EmailService;
 import com.buildledger.iam.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,8 +30,7 @@ public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final NotificationProducer notificationProducer;
-    private final EmailService emailService;
+    private final NotificationProducer notificationProducer;  // ← ADD
 
     @Override
     public UserResponseDTO createUser(CreateUserRequestDTO request) {
@@ -53,37 +50,22 @@ public class UserServiceImpl implements UserService {
             throw new DuplicateResourceException("Email already registered: " + request.getEmail());
         }
 
-        String plainPassword = request.getPassword();
-
         User user = User.builder()
                 .username(request.getUsername())
-                .password(passwordEncoder.encode(plainPassword))
+                .password(passwordEncoder.encode(request.getPassword()))
                 .name(request.getName())
                 .role(request.getRole())
                 .email(request.getEmail())
                 .phone(request.getPhone())
                 .status(UserStatus.ACTIVE)
-                .passwordChangeRequired(true)
                 .build();
 
         User saved = userRepository.save(user);
-        log.info("User created: id={}, username={}, role={}",
-                saved.getUserId(), saved.getUsername(), saved.getRole());
+        log.info("User created: id={}, username={}, role={}", saved.getUserId(), saved.getUsername(), saved.getRole());
 
-        // Send credentials email
-        if (saved.getEmail() != null && !saved.getEmail().isEmpty()) {
-            emailService.sendAccountCreatedEmail(
-                    saved.getEmail(),
-                    saved.getName(),
-                    saved.getUsername(),
-                    plainPassword,
-                    saved.getRole().toString()
-            );
-        }
-
-        // Notify user
+        // ← NEW: Notify the created user
         notificationProducer.send("iam-events", NotificationEvent.builder()
-                .recipientEmail(saved.getUsername())
+                .recipientEmail(saved.getUsername())  // username — matches auth.getName()
                 .recipientName(saved.getName())
                 .type("USER_CREATED")
                 .subject("Your BuildLedger account has been created")
@@ -146,9 +128,9 @@ public class UserServiceImpl implements UserService {
 
         UserResponseDTO result = mapToResponse(userRepository.save(user));
 
-        // USER_UPDATED notification
+        // ← NEW: USER_UPDATED — fires on every update
         notificationProducer.send("iam-events", NotificationEvent.builder()
-                .recipientEmail(user.getUsername())
+                .recipientEmail(user.getUsername())  // username — matches auth.getName()
                 .recipientName(user.getName())
                 .type("USER_UPDATED")
                 .subject("Your account details have been updated")
@@ -157,7 +139,7 @@ public class UserServiceImpl implements UserService {
                 .referenceType("USER")
                 .build());
 
-        // USER_STATUS_CHANGED notification + email
+        // ← NEW: USER_STATUS_CHANGED — fires only when status specifically changed
         if (statusChanged) {
             notificationProducer.send("iam-events", NotificationEvent.builder()
                     .recipientEmail(user.getUsername())
@@ -169,15 +151,6 @@ public class UserServiceImpl implements UserService {
                     .referenceId(String.valueOf(userId))
                     .referenceType("USER")
                     .build());
-
-            // ← Send email when account status changes
-            if (user.getEmail() != null && !user.getEmail().isEmpty()) {
-                emailService.sendAccountStatusEmail(
-                        user.getEmail(),
-                        user.getName(),
-                        request.getStatus().toString()
-                );
-            }
         }
 
         return result;
@@ -189,7 +162,7 @@ public class UserServiceImpl implements UserService {
         userRepository.delete(user);
         log.info("User deleted: id={}", userId);
 
-        // USER_DELETED notification
+        // ← NEW: USER_DELETED
         notificationProducer.send("iam-events", NotificationEvent.builder()
                 .recipientEmail(user.getUsername())
                 .recipientName(user.getName())
@@ -200,39 +173,6 @@ public class UserServiceImpl implements UserService {
                 .referenceId(String.valueOf(userId))
                 .referenceType("USER")
                 .build());
-    }
-
-    @Override
-    @Transactional
-    public void changePassword(ChangePasswordRequestDTO request) {
-        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
-            throw new BadRequestException("New password and confirm password do not match.");
-        }
-
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new ResourceNotFoundException("User", "username", request.getUsername()));
-
-        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
-            throw new BadRequestException("Current password is incorrect.");
-        }
-
-        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
-            throw new BadRequestException("New password cannot be the same as the current password.");
-        }
-
-        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
-        user.setPasswordChangeRequired(false);
-        userRepository.save(user);
-
-        log.info("Password changed for user: {}", user.getUsername());
-
-        // ← Send password changed confirmation email
-        if (user.getEmail() != null && !user.getEmail().isEmpty()) {
-            emailService.sendPasswordChangedEmail(
-                    user.getEmail(),
-                    user.getName()
-            );
-        }
     }
 
     @Override
