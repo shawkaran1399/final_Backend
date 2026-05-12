@@ -14,7 +14,6 @@ public class DeliveryResponseDTO {
     private String        item;
     private BigDecimal    quantity;
     private String        unit;
-    private BigDecimal    price;       // ← milestone price for invoice generation
     private String        remarks;
     private DeliveryStatus status;
     private LocalDateTime createdAt;

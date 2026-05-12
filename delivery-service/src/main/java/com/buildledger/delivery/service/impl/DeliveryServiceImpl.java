@@ -51,10 +51,6 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         validateDeliveryDateInWindow(request.getDate(), contractData);
         validateVendorOwnership(contractData);
 
-        // ── Budget validation ─────────────────────────────────────────────────
-        // Delivery price must not exceed remaining contract budget
-        validateContractBudget(request.getContractId(), request.getPrice(), contractData, null);
-
         // Extract cached usernames from contract data for scheduler notifications
         String managerUsername = (String) contractData.getOrDefault("managerUsername", "");
         String vendorUsername  = (String) contractData.getOrDefault("vendorUsername",  "");
@@ -65,7 +61,6 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
                 .item(request.getItem())
                 .quantity(request.getQuantity())
                 .unit(request.getUnit())
-                .price(request.getPrice())
                 .remarks(request.getRemarks())
                 .managerUsername(managerUsername)
                 .vendorUsername(vendorUsername)
@@ -80,7 +75,6 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
                 .message("A new delivery has been scheduled for contract #" + request.getContractId()
                         + ". Item: " + request.getItem()
                         + ", Quantity: " + request.getQuantity() + " " + request.getUnit()
-                        + ", Price: ₹" + request.getPrice()
                         + ", Expected date: " + request.getDate())
                 .referenceId(String.valueOf(result.getDeliveryId()))
                 .referenceType("DELIVERY").build());
@@ -97,20 +91,11 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         // Get contract value from Feign response
         BigDecimal contractValue = extractBigDecimal(contractData.get("value"));
 
-        // Sum all delivery prices for this contract
         List<Delivery>      deliveries = deliveryRepository.findByContractId(contractId);
         List<ServiceRecord> services   = serviceRecordRepository.findByContractId(contractId);
 
-        BigDecimal deliverySpent = deliveries.stream()
-                .map(d -> d.getPrice() != null ? d.getPrice() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal serviceSpent = services.stream()
-                .map(s -> s.getPrice() != null ? s.getPrice() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal totalSpent = deliverySpent.add(serviceSpent);
-        BigDecimal remaining  = contractValue.subtract(totalSpent);
+        BigDecimal totalSpent = BigDecimal.ZERO;
+        BigDecimal remaining  = contractValue;
 
         return ContractBudgetSummaryDTO.builder()
                 .contractId(contractId)
@@ -204,12 +189,6 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
             validateDeliveryDateInWindow(request.getDate(), contractData);
             delivery.setDate(request.getDate());
         }
-        if (request.getPrice() != null) {
-            Map<String, Object> contractData = validateContractActive(targetContractId);
-            // Exclude current delivery from budget calculation to avoid double-counting
-            validateContractBudget(targetContractId, request.getPrice(), contractData, deliveryId);
-            delivery.setPrice(request.getPrice());
-        }
         if (request.getItem()     != null) delivery.setItem(request.getItem());
         if (request.getQuantity() != null) delivery.setQuantity(request.getQuantity());
         if (request.getUnit()     != null) delivery.setUnit(request.getUnit());
@@ -223,43 +202,6 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         if (delivery.getStatus() != DeliveryStatus.PENDING)
             throw new BadRequestException("Only PENDING deliveries can be deleted.");
         deliveryRepository.delete(delivery);
-    }
-
-    // ── Budget validation ─────────────────────────────────────────────────────
-
-    /**
-     * Validates that the new price does not exceed remaining contract budget.
-     * excludeDeliveryId: when updating, exclude this delivery to avoid double-counting.
-     *
-     * remaining = contractValue - sum(all delivery prices) - sum(all service prices)
-     * If new price > remaining → hard block
-     */
-    private void validateContractBudget(Long contractId, BigDecimal newPrice,
-                                        Map<String, Object> contractData, Long excludeDeliveryId) {
-        if (newPrice == null) return;
-
-        BigDecimal contractValue = extractBigDecimal(contractData.get("value"));
-        if (contractValue == null || contractValue.compareTo(BigDecimal.ZERO) == 0) return;
-
-        // Sum all existing delivery prices (excluding current if updating)
-        BigDecimal deliverySpent = deliveryRepository.findByContractId(contractId).stream()
-                .filter(d -> !d.getDeliveryId().equals(excludeDeliveryId))
-                .map(d -> d.getPrice() != null ? d.getPrice() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // Sum all existing service prices
-        BigDecimal serviceSpent = serviceRecordRepository.findByContractId(contractId).stream()
-                .map(s -> s.getPrice() != null ? s.getPrice() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal totalSpent = deliverySpent.add(serviceSpent);
-        BigDecimal remaining  = contractValue.subtract(totalSpent);
-
-        if (newPrice.compareTo(remaining) > 0) {
-            throw new BadRequestException(
-                    "Delivery price (₹" + newPrice + ") exceeds remaining contract budget (₹" + remaining + "). "
-                            + "Contract value: ₹" + contractValue + ", Already allocated: ₹" + totalSpent + ".");
-        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -363,7 +305,7 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         return DeliveryResponseDTO.builder()
                 .deliveryId(d.getDeliveryId()).contractId(d.getContractId())
                 .date(d.getDate()).item(d.getItem()).quantity(d.getQuantity()).unit(d.getUnit())
-                .price(d.getPrice()).remarks(d.getRemarks()).status(d.getStatus())
+                .remarks(d.getRemarks()).status(d.getStatus())
                 .createdAt(d.getCreatedAt()).updatedAt(d.getUpdatedAt()).build();
     }
 }

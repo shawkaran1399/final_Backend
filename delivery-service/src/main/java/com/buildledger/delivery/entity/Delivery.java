@@ -38,14 +38,6 @@ public class Delivery {
     @Column(name = "unit", length = 50)
     private String unit;
 
-    /**
-     * Price of this delivery milestone in INR.
-     * Must not exceed remaining contract budget (contractValue - sum of existing delivery+service prices).
-     * Used later to generate delivery invoice.
-     */
-    @Column(name = "price", precision = 18, scale = 2, nullable = false)
-    private BigDecimal price;
-
     @Column(name = "remarks", columnDefinition = "TEXT")
     private String remarks;
 

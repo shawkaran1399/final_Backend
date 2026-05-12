@@ -14,7 +14,6 @@ import com.buildledger.delivery.feign.ContractServiceClient;
 import com.buildledger.delivery.feign.ContractServiceFallback;
 import com.buildledger.delivery.feign.VendorServiceClient;
 import com.buildledger.delivery.feign.VendorServiceFallback;
-import com.buildledger.delivery.repository.DeliveryRepository;
 import com.buildledger.delivery.repository.ServiceRecordRepository;
 import com.buildledger.delivery.service.ServiceTrackingService;
 import feign.FeignException;
@@ -25,7 +24,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -37,7 +35,6 @@ import java.util.stream.Collectors;
 class ServiceTrackingServiceImpl implements ServiceTrackingService {
 
     private final ServiceRecordRepository  serviceRecordRepository;
-    private final DeliveryRepository       deliveryRepository;
     private final ContractServiceClient    contractServiceClient;
     private final VendorServiceClient      vendorServiceClient;
     private final NotificationProducer     notificationProducer;
@@ -50,10 +47,6 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         Map<String, Object> contractData = validateContractActive(request.getContractId());
         validateVendorOwnership(contractData);
 
-        // ── Budget validation ─────────────────────────────────────────────────
-        // Service price must not exceed remaining contract budget
-        validateContractBudget(request.getContractId(), request.getPrice(), contractData);
-
         // Extract cached usernames from contract data for scheduler notifications
         String managerUsername = (String) contractData.getOrDefault("managerUsername", "");
         String vendorUsername  = (String) contractData.getOrDefault("vendorUsername",  "");
@@ -62,7 +55,6 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
                 .contractId(request.getContractId())
                 .description(request.getDescription())
                 .completionDate(request.getCompletionDate())
-                .price(request.getPrice())               // ← FIX: was missing, caused NULL error
                 .remarks(request.getRemarks())
                 .managerUsername(managerUsername)
                 .vendorUsername(vendorUsername)
@@ -76,7 +68,6 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
                 .subject("New service scheduled for contract #" + request.getContractId())
                 .message("A new service has been scheduled for contract #" + request.getContractId()
                         + ". Description: " + request.getDescription()
-                        + ". Price: ₹" + request.getPrice()
                         + ". Expected completion: " + request.getCompletionDate())
                 .referenceId(String.valueOf(result.getServiceId()))
                 .referenceType("SERVICE").build());
@@ -164,11 +155,6 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         }
         if (request.getDescription()   != null) service.setDescription(request.getDescription());
         if (request.getCompletionDate() != null) service.setCompletionDate(request.getCompletionDate());
-        if (request.getPrice()         != null) {
-            Map<String, Object> contractData = validateContractActive(service.getContractId());
-            validateContractBudget(service.getContractId(), request.getPrice(), contractData);
-            service.setPrice(request.getPrice());
-        }
         if (request.getRemarks()       != null) service.setRemarks(request.getRemarks());
 
         return mapToResponse(serviceRecordRepository.save(service));
@@ -179,33 +165,6 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         if (service.getStatus() != ServiceStatus.PENDING)
             throw new BadRequestException("Only PENDING services can be deleted.");
         serviceRecordRepository.delete(service);
-    }
-
-    // ── Budget validation ─────────────────────────────────────────────────────
-
-    private void validateContractBudget(Long contractId, BigDecimal newPrice,
-                                        Map<String, Object> contractData) {
-        if (newPrice == null) return;
-
-        BigDecimal contractValue = extractBigDecimal(contractData.get("value"));
-        if (contractValue == null || contractValue.compareTo(BigDecimal.ZERO) == 0) return;
-
-        BigDecimal deliverySpent = deliveryRepository.findByContractId(contractId).stream()
-                .map(d -> d.getPrice() != null ? d.getPrice() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal serviceSpent = serviceRecordRepository.findByContractId(contractId).stream()
-                .map(s -> s.getPrice() != null ? s.getPrice() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal remaining = contractValue.subtract(deliverySpent.add(serviceSpent));
-
-        if (newPrice.compareTo(remaining) > 0) {
-            throw new BadRequestException(
-                    "Service price (₹" + newPrice + ") exceeds remaining contract budget (₹" + remaining + "). "
-                            + "Contract value: ₹" + contractValue
-                            + ", Already allocated: ₹" + deliverySpent.add(serviceSpent) + ".");
-        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -278,13 +237,6 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
                     "Access denied. Required roles: " + String.join(" or ", roles));
     }
 
-    private BigDecimal extractBigDecimal(Object value) {
-        if (value == null) return BigDecimal.ZERO;
-        if (value instanceof BigDecimal) return (BigDecimal) value;
-        try { return new BigDecimal(value.toString()); }
-        catch (Exception e) { return BigDecimal.ZERO; }
-    }
-
     private ServiceRecord findById(Long id) {
         return serviceRecordRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Service", "id", id));
@@ -294,7 +246,7 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         return ServiceResponseDTO.builder()
                 .serviceId(s.getServiceId()).contractId(s.getContractId())
                 .description(s.getDescription()).completionDate(s.getCompletionDate())
-                .price(s.getPrice()).status(s.getStatus()).remarks(s.getRemarks())
+                .status(s.getStatus()).remarks(s.getRemarks())
                 .createdAt(s.getCreatedAt()).updatedAt(s.getUpdatedAt()).build();
     }
 }

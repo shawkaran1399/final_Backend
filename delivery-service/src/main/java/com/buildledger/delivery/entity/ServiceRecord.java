@@ -7,7 +7,6 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -31,14 +30,6 @@ public class ServiceRecord {
 
     @Column(name = "completion_date")
     private LocalDate completionDate;
-
-    /**
-     * Price of this service in INR.
-     * Must not exceed remaining contract budget (contractValue - sum of existing delivery+service prices).
-     * Used later to generate service invoice.
-     */
-    @Column(name = "price", precision = 18, scale = 2, nullable = false)
-    private BigDecimal price;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
