@@ -18,7 +18,7 @@ public class ComplianceAuditLog {
     @Column(name = "compliance_record_id", nullable = false)
     private Long complianceRecordId;
 
-    /** The new status that was applied — e.g. UNDER_REVIEW, PASSED, FAILED, WAIVED, PENDING */
+    /** The new status that was applied — e.g. UNDER_REVIEW, PASSED, FAILED */
     @Column(name = "action", nullable = false, length = 50)
     private String action;
 

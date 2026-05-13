@@ -23,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -43,6 +44,9 @@ public class ComplianceServiceImpl implements ComplianceService {
     public ComplianceRecordResponseDTO createComplianceRecord(ComplianceRecordRequestDTO request,
                                                               String reviewerUsername) {
         log.info("Creating compliance record type={} referenceId={}", request.getType(), request.getContractId());
+        if (!LocalDate.now().equals(request.getDate())) {
+            throw new BadRequestException("Date must be today (" + LocalDate.now() + ").");
+        }
         validateReferenceEntityStatus(request.getContractId(), request.getType());
 
         ComplianceRecord record = ComplianceRecord.builder()
@@ -112,7 +116,12 @@ public class ComplianceServiceImpl implements ComplianceService {
             record.setContractId(request.getContractId());
         }
         if (request.getType() != null) record.setType(request.getType());
-        if (request.getDate() != null) record.setDate(request.getDate());
+        if (request.getDate() != null) {
+            if (!LocalDate.now().equals(request.getDate())) {
+                throw new BadRequestException("Date must be today (" + LocalDate.now() + ").");
+            }
+            record.setDate(request.getDate());
+        }
         if (request.getNotes() != null) record.setNotes(request.getNotes());
         record.setReviewedBy(reviewerUsername);
 
@@ -150,17 +159,7 @@ public class ComplianceServiceImpl implements ComplianceService {
         if (!current.canTransitionTo(newStatus)) {
             throw new BadRequestException(
                     "Invalid compliance status transition from " + current + " to " + newStatus +
-                            ". Lifecycle: PENDING→UNDER_REVIEW, UNDER_REVIEW→PASSED|FAILED|WAIVED, FAILED→PENDING.");
-        }
-
-        if (current == ComplianceStatus.FAILED && newStatus == ComplianceStatus.PENDING) {
-            int retries = record.getRetryCount() + 1;
-            if (retries >= 3) {
-                throw new BadRequestException(
-                    "Compliance record #" + id + " has exceeded the maximum retry limit (3). " +
-                    "Manual escalation required.");
-            }
-            record.setRetryCount(retries);
+                            ". Lifecycle: PENDING→PASSED|FAILED.");
         }
 
         record.setStatus(newStatus);
@@ -195,19 +194,7 @@ public class ComplianceServiceImpl implements ComplianceService {
                 .build());
 
         // Fires based on specific status
-        if (newStatus == ComplianceStatus.UNDER_REVIEW) {
-            notificationProducer.send("compliance-events", NotificationEvent.builder()
-                    .recipientEmail("")
-                    .recipientName(reviewerUsername)
-                    .type("COMPLIANCE_REVIEW_STARTED")
-                    .subject("Compliance review started for record #" + id)
-                    .message("Compliance record #" + id + " for contract #" + record.getContractId()
-                            + " is now UNDER REVIEW by " + reviewerUsername + ".")
-                    .referenceId(String.valueOf(id))
-                    .referenceType("COMPLIANCE")
-                    .build());
-
-        } else if (newStatus == ComplianceStatus.PASSED) {
+        if (newStatus == ComplianceStatus.PASSED) {
             notificationProducer.send("compliance-events", NotificationEvent.builder()
                     .recipientEmail("")
                     .recipientName(reviewerUsername)
@@ -232,30 +219,6 @@ public class ComplianceServiceImpl implements ComplianceService {
                     .referenceType("COMPLIANCE")
                     .build());
 
-        } else if (newStatus == ComplianceStatus.WAIVED) {
-            notificationProducer.send("compliance-events", NotificationEvent.builder()
-                    .recipientEmail("")
-                    .recipientName(reviewerUsername)
-                    .type("COMPLIANCE_WAIVED")
-                    .subject("Compliance check WAIVED for record #" + id)
-                    .message("Compliance record #" + id + " for contract #" + record.getContractId()
-                            + " has been WAIVED by " + reviewerUsername + ".")
-                    .referenceId(String.valueOf(id))
-                    .referenceType("COMPLIANCE")
-                    .build());
-
-        } else if (newStatus == ComplianceStatus.PENDING) {
-            notificationProducer.send("compliance-events", NotificationEvent.builder()
-                    .recipientEmail("")
-                    .recipientName(reviewerUsername)
-                    .type("COMPLIANCE_REINITIATED")
-                    .subject("Compliance record #" + id + " has been reinitiated")
-                    .message("Compliance record #" + id + " for contract #" + record.getContractId()
-                            + " has been reinitiated back to PENDING for retry. "
-                            + "Reviewed by: " + reviewerUsername)
-                    .referenceId(String.valueOf(id))
-                    .referenceType("COMPLIANCE")
-                    .build());
         }
 
         return result;
@@ -287,7 +250,7 @@ public class ComplianceServiceImpl implements ComplianceService {
     @Transactional(readOnly = true)
     public boolean isCompliancePassed(Long referenceId, ComplianceType type) {
         return complianceRecordRepository.existsByContractIdAndTypeAndStatusIn(
-                referenceId, type, List.of(ComplianceStatus.PASSED, ComplianceStatus.WAIVED));
+                referenceId, type, List.of(ComplianceStatus.PASSED));
     }
 
     // ── Private Helpers ──────────────────────────────────────────────────────

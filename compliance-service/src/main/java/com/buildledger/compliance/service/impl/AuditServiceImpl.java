@@ -53,7 +53,7 @@ public class AuditServiceImpl implements AuditService {
             .scope(request.getScope())
             .findings(request.getFindings())
             .date(request.getDate())
-            .status(AuditStatus.SCHEDULED)
+            .status(AuditStatus.IN_PROGRESS)
             .build();
 
         AuditResponseDTO result = mapToResponse(auditRepository.save(audit));
@@ -96,9 +96,9 @@ public class AuditServiceImpl implements AuditService {
     public AuditResponseDTO updateAudit(Long auditId, AuditRequestDTO request) {
         Audit audit = findById(auditId);
 
-        if (audit.getStatus() != AuditStatus.SCHEDULED) {
+        if (audit.getStatus() != AuditStatus.IN_PROGRESS) {
             throw new BadRequestException(
-                "Audit can only be updated in SCHEDULED status. Current status: " + audit.getStatus());
+                "Audit can only be updated in IN_PROGRESS status. Current status: " + audit.getStatus());
         }
 
         if (request.getComplianceOfficerId() != null &&
@@ -122,7 +122,7 @@ public class AuditServiceImpl implements AuditService {
         if (!current.canTransitionTo(newStatus)) {
             throw new BadRequestException(
                 "Invalid audit status transition from " + current + " to " + newStatus +
-                ". Lifecycle: SCHEDULED→IN_PROGRESS|CANCELLED, IN_PROGRESS→PENDING_REVIEW|CANCELLED, PENDING_REVIEW→COMPLETED|CANCELLED.");
+                ". Lifecycle: IN_PROGRESS→PENDING_REVIEW|CANCELLED, PENDING_REVIEW→COMPLETED|CANCELLED.");
         }
 
         if (newStatus == AuditStatus.COMPLETED) {
@@ -147,9 +147,9 @@ public class AuditServiceImpl implements AuditService {
     @Override
     public void deleteAudit(Long auditId) {
         Audit audit = findById(auditId);
-        if (audit.getStatus() != AuditStatus.SCHEDULED) {
+        if (audit.getStatus() != AuditStatus.IN_PROGRESS && audit.getStatus() != AuditStatus.CANCELLED) {
             throw new BadRequestException(
-                "Only SCHEDULED (never started) audits can be deleted. Current status: " + audit.getStatus());
+                "Only IN_PROGRESS or CANCELLED audits can be deleted. Current status: " + audit.getStatus());
         }
         auditRepository.delete(audit);
         log.info("Audit deleted: id={}", auditId);

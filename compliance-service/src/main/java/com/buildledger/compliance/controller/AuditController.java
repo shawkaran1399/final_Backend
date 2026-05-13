@@ -34,9 +34,9 @@ public class AuditController {
     public ResponseEntity<ApiResponseDTO<AuditResponseDTO>> createAudit(
             @Valid @RequestBody AuditRequestDTO request,
             @RequestHeader("X-User-Id") Long requestUserId,
-            @RequestHeader("X-Role") String requestUserRole) {
+            @RequestHeader("X-User-Role") String requestUserRole) {
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponseDTO.success("Audit scheduled",
+            .body(ApiResponseDTO.success("Audit created",
                 auditService.createAudit(request, requestUserId, requestUserRole)));
     }
 
@@ -62,7 +62,7 @@ public class AuditController {
     @PutMapping("/{auditId}")
     @PreAuthorize("hasRole('COMPLIANCE_OFFICER') or hasRole('ADMIN')")
     @Operation(summary = "Update audit details [COMPLIANCE_OFFICER / ADMIN]",
-               description = "Only allowed when audit is in SCHEDULED status")
+               description = "Only allowed when audit is in IN_PROGRESS status")
     public ResponseEntity<ApiResponseDTO<AuditResponseDTO>> updateAudit(
             @PathVariable Long auditId,
             @Valid @RequestBody AuditRequestDTO request) {
@@ -73,7 +73,7 @@ public class AuditController {
     @PatchMapping("/{auditId}/status")
     @PreAuthorize("hasRole('COMPLIANCE_OFFICER') or hasRole('ADMIN')")
     @Operation(summary = "Update audit status [COMPLIANCE_OFFICER / ADMIN]",
-               description = "Lifecycle: SCHEDULED→IN_PROGRESS|CANCELLED, IN_PROGRESS→PENDING_REVIEW|CANCELLED, PENDING_REVIEW→COMPLETED|CANCELLED")
+               description = "Lifecycle: IN_PROGRESS→PENDING_REVIEW|CANCELLED, PENDING_REVIEW→COMPLETED|CANCELLED")
     public ResponseEntity<ApiResponseDTO<AuditResponseDTO>> updateAuditStatus(
             @PathVariable Long auditId,
             @RequestParam AuditStatus status,
@@ -85,7 +85,7 @@ public class AuditController {
     @DeleteMapping("/{auditId}")
     @PreAuthorize("hasRole('COMPLIANCE_OFFICER') or hasRole('ADMIN')")
     @Operation(summary = "Delete audit [COMPLIANCE_OFFICER / ADMIN]",
-               description = "Only SCHEDULED or CANCELLED audits can be deleted")
+               description = "Only IN_PROGRESS or CANCELLED audits can be deleted")
     public ResponseEntity<ApiResponseDTO<Void>> deleteAudit(@PathVariable Long auditId) {
         auditService.deleteAudit(auditId);
         return ResponseEntity.ok(ApiResponseDTO.success("Audit deleted successfully"));

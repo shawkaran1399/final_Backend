@@ -40,7 +40,7 @@ public class Audit {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     @Builder.Default
-    private AuditStatus status = AuditStatus.SCHEDULED;
+    private AuditStatus status = AuditStatus.IN_PROGRESS;
 
     @CreatedDate @Column(name = "created_at", updatable = false) private LocalDateTime createdAt;
     @LastModifiedDate @Column(name = "updated_at") private LocalDateTime updatedAt;

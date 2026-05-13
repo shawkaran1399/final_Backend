@@ -83,7 +83,7 @@ public class ComplianceController {
     @PatchMapping("/{complianceId}/status")
     @PreAuthorize("hasRole('COMPLIANCE_OFFICER') or hasRole('ADMIN')")
     @Operation(summary = "Update compliance record status [COMPLIANCE_OFFICER / ADMIN]",
-               description = "Lifecycle: PENDING→UNDER_REVIEW, UNDER_REVIEW→PASSED|FAILED|WAIVED, FAILED→PENDING. " +
+               description = "Lifecycle: PENDING→PASSED|FAILED. " +
                              "remarks is REQUIRED when setting status=FAILED.")
     public ResponseEntity<ApiResponseDTO<ComplianceRecordResponseDTO>> updateStatus(
             @PathVariable Long complianceId,
@@ -104,7 +104,7 @@ public class ComplianceController {
     }
 
     @GetMapping("/check/{referenceId}")
-    @Operation(summary = "Check if compliance has PASSED or WAIVED for a reference entity [ALL roles]",
+    @Operation(summary = "Check if compliance has PASSED for a reference entity [ALL roles]",
                description = "Used by other services to gate approvals. type = DELIVERY_CHECK | INVOICE_CHECK | SERVICE_CHECK | DOCUMENT_CHECK")
     public ResponseEntity<ApiResponseDTO<Boolean>> checkCompliance(
             @PathVariable Long referenceId,

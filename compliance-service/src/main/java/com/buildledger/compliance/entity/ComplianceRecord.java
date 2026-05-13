@@ -39,10 +39,6 @@ public class ComplianceRecord {
     @Column(name = "reviewed_by", length = 100)
     private String reviewedBy;
 
-    @Column(name = "retry_count", nullable = false)
-    @Builder.Default
-    private int retryCount = 0;
-
     @CreatedDate @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 }

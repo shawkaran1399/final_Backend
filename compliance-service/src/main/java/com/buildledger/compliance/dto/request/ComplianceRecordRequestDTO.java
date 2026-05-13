@@ -13,7 +13,6 @@ public class ComplianceRecordRequestDTO {
     @NotNull(message = "Compliance type is required")
     private ComplianceType type;
     @NotNull(message = "Date is required")
-    @FutureOrPresent(message = "Date must be today or a future date")
     private LocalDate date;
     @NotBlank(message = "Notes are required")
     @Size(min = 10, max = 1000, message = "Notes must be between 10 and 1000 characters")
