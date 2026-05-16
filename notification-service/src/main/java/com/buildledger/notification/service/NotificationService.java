@@ -79,5 +79,25 @@ public class NotificationService {
     public long getUnreadCount(String email) {
         return notificationRepository.countByRecipientEmailAndRead(email, false);
     }
-}
 
+    @Transactional
+    public Notification markAsAdminRead(Long id) {
+        Notification notification = notificationRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Notification not found"));
+        notification.setAdminRead(true);
+        return notificationRepository.save(notification);
+    }
+
+    @Transactional
+    public void markAllAsAdminRead() {
+        List<Notification> unread = notificationRepository.findAll().stream()
+                .filter(n -> Boolean.FALSE.equals(n.getAdminRead()))
+                .toList();
+        unread.forEach(n -> n.setAdminRead(true));
+        notificationRepository.saveAll(unread);
+    }
+
+    public long getAdminUnreadCount() {
+        return notificationRepository.countByRecipientEmailAndAdminRead("admin", false);
+    }
+}

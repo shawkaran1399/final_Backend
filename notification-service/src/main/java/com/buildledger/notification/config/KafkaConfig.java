@@ -10,8 +10,10 @@ import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -35,25 +37,32 @@ public class KafkaConfig {
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 
         JsonDeserializer<NotificationEvent> jsonDeserializer =
-            new JsonDeserializer<>(NotificationEvent.class, false);
+                new JsonDeserializer<>(NotificationEvent.class, false);
         jsonDeserializer.addTrustedPackages("com.buildledger.*");
 
         ErrorHandlingDeserializer<NotificationEvent> valueDeserializer =
-            new ErrorHandlingDeserializer<>(jsonDeserializer);
+                new ErrorHandlingDeserializer<>(jsonDeserializer);
 
         return new DefaultKafkaConsumerFactory<>(props,
-            new StringDeserializer(),
-            valueDeserializer);
+                new StringDeserializer(),
+                valueDeserializer);
     }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, NotificationEvent> kafkaListenerContainerFactory() {
         ConcurrentKafkaListenerContainerFactory<String, NotificationEvent> factory =
-            new ConcurrentKafkaListenerContainerFactory<>();
+                new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         factory.setConcurrency(3);
+
+        // Skip poison messages immediately (0 retries) instead of blocking the topic partition
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(new FixedBackOff(0L, 0L));
+        errorHandler.addNotRetryableExceptions(
+                org.springframework.kafka.support.serializer.DeserializationException.class
+        );
+        factory.setCommonErrorHandler(errorHandler);
+
         return factory;
     }
 }
-

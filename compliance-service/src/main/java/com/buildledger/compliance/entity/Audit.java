@@ -25,6 +25,10 @@ public class Audit {
     @Column(name = "officer_name", length = 100)
     private String officerName;
 
+    // Add after officerName field:
+    @Column(name = "officer_username", length = 100)
+    private String officerUsername;
+
     @Column(name = "scope", nullable = false, length = 300)
     private String scope;
 

@@ -57,16 +57,14 @@ public class ProjectServiceImpl implements ProjectService {
 
         ProjectResponseDTO result = mapToResponse(projectRepository.save(project));
 
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(managerUsername).recipientName(managerName)
-                .type("PROJECT_CREATED")
-                .subject("You have been assigned to a new project: " + request.getName())
-                .message("Dear " + managerName + ", you have been assigned as Project Manager for '"
+        sendProjectNotif("PROJECT_CREATED",
+                "You have been assigned to a new project: " + request.getName(),
+                "Dear " + managerName + ", you have been assigned as Project Manager for '"
                         + request.getName() + "' at '" + request.getLocation()
                         + "'. Budget: " + request.getBudget()
-                        + ". Start: " + request.getStartDate() + ", End: " + request.getEndDate())
-                .referenceId(String.valueOf(result.getProjectId()))
-                .referenceType("PROJECT").build());
+                        + ". Start: " + request.getStartDate() + ", End: " + request.getEndDate(),
+                String.valueOf(result.getProjectId()),
+                managerUsername, ADMIN_USERNAME);
 
         return result;
     }
@@ -107,33 +105,34 @@ public class ProjectServiceImpl implements ProjectService {
                 && request.getEndDate().isBefore(request.getStartDate()))
             throw new BadRequestException("End date cannot be before start date");
 
-        List<String> changes        = new ArrayList<>();
+        // fieldChanges tracks only data field edits — manager reassignment is handled separately
+        List<String> fieldChanges   = new ArrayList<>();
         String       managerUsername = project.getManagerUsername() != null
                 ? project.getManagerUsername() : "";
         String       managerName    = project.getManagerName();
 
         if (request.getName() != null && !request.getName().equals(project.getName())) {
-            changes.add("Name: '" + project.getName() + "' → '" + request.getName() + "'");
+            fieldChanges.add("Name: '" + project.getName() + "' → '" + request.getName() + "'");
             project.setName(request.getName());
         }
         if (request.getDescription() != null && !request.getDescription().equals(project.getDescription())) {
-            changes.add("Description updated");
+            fieldChanges.add("Description updated");
             project.setDescription(request.getDescription());
         }
         if (request.getLocation() != null && !request.getLocation().equals(project.getLocation())) {
-            changes.add("Location: '" + project.getLocation() + "' → '" + request.getLocation() + "'");
+            fieldChanges.add("Location: '" + project.getLocation() + "' → '" + request.getLocation() + "'");
             project.setLocation(request.getLocation());
         }
         if (request.getBudget() != null && !request.getBudget().equals(project.getBudget())) {
-            changes.add("Budget: " + project.getBudget() + " → " + request.getBudget());
+            fieldChanges.add("Budget: " + project.getBudget() + " → " + request.getBudget());
             project.setBudget(request.getBudget());
         }
         if (request.getStartDate() != null && !request.getStartDate().equals(project.getStartDate())) {
-            changes.add("Start date: " + project.getStartDate() + " → " + request.getStartDate());
+            fieldChanges.add("Start date: " + project.getStartDate() + " → " + request.getStartDate());
             project.setStartDate(request.getStartDate());
         }
         if (request.getEndDate() != null && !request.getEndDate().equals(project.getEndDate())) {
-            changes.add("End date: " + project.getEndDate() + " → " + request.getEndDate());
+            fieldChanges.add("End date: " + project.getEndDate() + " → " + request.getEndDate());
             project.setEndDate(request.getEndDate());
         }
         if (request.getActualEndDate() != null) {
@@ -145,19 +144,31 @@ public class ProjectServiceImpl implements ProjectService {
             String              newName     = newInfo.get("name");
             String              newUsername = newInfo.get("username");
 
-            changes.add("Manager: '" + project.getManagerName() + "' → '" + newName + "'");
+            // Capture old PM before overwriting — needed for their removal notification
+            String oldManagerUsername = managerUsername;
+            String oldManagerName     = managerName;
+
             project.setManagerId(request.getManagerId());
             project.setManagerName(newName);
             project.setManagerUsername(newUsername);
 
-            notificationProducer.send("contract-events", NotificationEvent.builder()
-                    .recipientEmail(newUsername).recipientName(newName)
-                    .type("PROJECT_CREATED")
-                    .subject("You have been assigned to project: " + project.getName())
-                    .message("Dear " + newName + ", you have been assigned as Project Manager for '"
-                            + project.getName() + "'.")
-                    .referenceId(String.valueOf(project.getProjectId()))
-                    .referenceType("PROJECT").build());
+            // Notify NEW PM they have been assigned
+            sendProjectNotif("PROJECT_MANAGER_REASSIGNED",
+                    "You have been assigned to project: " + project.getName(),
+                    "Dear " + newName + ", you have been assigned as Project Manager for '"
+                            + project.getName() + "'.",
+                    String.valueOf(project.getProjectId()),
+                    newUsername, ADMIN_USERNAME);
+
+            // Notify OLD PM they have been removed
+            if (!oldManagerUsername.isBlank()) {
+                sendProjectNotif("PROJECT_MANAGER_REASSIGNED",
+                        "You have been removed from project: " + project.getName(),
+                        "Dear " + oldManagerName + ", you have been removed as Project Manager for '"
+                                + project.getName() + "'. The project has been reassigned to " + newName + ".",
+                        String.valueOf(project.getProjectId()),
+                        oldManagerUsername, ADMIN_USERNAME);
+            }
 
             managerUsername = newUsername;
             managerName     = newName;
@@ -165,15 +176,14 @@ public class ProjectServiceImpl implements ProjectService {
 
         ProjectResponseDTO result = mapToResponse(projectRepository.save(project));
 
-        if (!changes.isEmpty()) {
-            notificationProducer.send("contract-events", NotificationEvent.builder()
-                    .recipientEmail(managerUsername).recipientName(managerName)
-                    .type("PROJECT_UPDATED")
-                    .subject("Project updated: " + project.getName())
-                    .message("Dear " + managerName + ", your project '" + project.getName()
-                            + "' has been updated. Changes: " + String.join(", ", changes))
-                    .referenceId(String.valueOf(project.getProjectId()))
-                    .referenceType("PROJECT").build());
+        // Only fire PROJECT_UPDATED if actual data fields changed — not for manager reassignment
+        if (!fieldChanges.isEmpty()) {
+            sendProjectNotif("PROJECT_UPDATED",
+                    "Project updated: " + project.getName(),
+                    "Dear " + managerName + ", your project '" + project.getName()
+                            + "' has been updated. Changes: " + String.join(", ", fieldChanges),
+                    String.valueOf(project.getProjectId()),
+                    managerUsername, ADMIN_USERNAME);
         }
 
         return result;
@@ -214,22 +224,62 @@ public class ProjectServiceImpl implements ProjectService {
         ProjectResponseDTO result = mapToResponse(projectRepository.save(project));
 
         String username = project.getManagerUsername() != null ? project.getManagerUsername() : "";
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(username).recipientName(project.getManagerName())
-                .type("PROJECT_STATUS_CHANGED")
-                .subject("Project status updated: " + project.getName())
-                .message("Dear " + project.getManagerName() + ", project '" + project.getName()
-                        + "' status changed from " + current + " to " + newStatus + ".")
-                .referenceId(String.valueOf(project.getProjectId()))
-                .referenceType("PROJECT").build());
+
+        // Fire a specific notification type per status transition
+        String notifType = switch (newStatus) {
+            case ACTIVE     -> current == ProjectStatus.ON_HOLD ? "PROJECT_RESUMED" : "PROJECT_ACTIVATED";
+            case ON_HOLD    -> "PROJECT_PUT_ON_HOLD";
+            case COMPLETED  -> "PROJECT_COMPLETED";
+            case CANCELLED  -> "PROJECT_CANCELLED";
+            default         -> "PROJECT_STATUS_CHANGED";
+        };
+
+        String subject = switch (newStatus) {
+            case ACTIVE     -> current == ProjectStatus.ON_HOLD
+                    ? "Project resumed: " + project.getName()
+                    : "Project activated: " + project.getName();
+            case ON_HOLD    -> "Project put on hold: " + project.getName();
+            case COMPLETED  -> "Project completed: " + project.getName();
+            case CANCELLED  -> "Project cancelled: " + project.getName();
+            default         -> "Project status updated: " + project.getName();
+        };
+
+        sendProjectNotif(notifType, subject,
+                "Dear " + project.getManagerName() + ", project '" + project.getName()
+                        + "' status changed from " + current + " to " + newStatus + ".",
+                String.valueOf(project.getProjectId()),
+                username, ADMIN_USERNAME);
 
         return result;
     }
 
     @Override
     public void deleteProject(Long projectId) {
-        projectRepository.delete(findById(projectId));
+        Project project = findById(projectId);
+        String username = project.getManagerUsername() != null ? project.getManagerUsername() : "";
+        projectRepository.delete(project);
         log.info("Project deleted: id={}", projectId);
+
+        sendProjectNotif("PROJECT_DELETED",
+                "Project deleted: " + project.getName(),
+                "Dear " + project.getManagerName() + ", project '" + project.getName()
+                        + "' has been permanently deleted.",
+                String.valueOf(projectId),
+                username, ADMIN_USERNAME);
+    }
+
+    private static final String ADMIN_USERNAME = "admin";
+
+    private void sendProjectNotif(String type, String subject, String message,
+                                  String refId, String... recipients) {
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (String r : recipients) { if (r != null && !r.isBlank()) seen.add(r); }
+        for (String r : seen) {
+            notificationProducer.send("contract-events", NotificationEvent.builder()
+                    .recipientEmail(r).recipientName(r)
+                    .type(type).subject(subject).message(message)
+                    .referenceId(refId).referenceType("PROJECT").build());
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -256,7 +306,8 @@ public class ProjectServiceImpl implements ProjectService {
 
         return Map.of(
                 "name",     (String) userData.getOrDefault("name",     ""),
-                "username", (String) userData.getOrDefault("username", "")
+                "username", (String) userData.getOrDefault("username", ""),
+                "email",    (String) userData.getOrDefault("email",    "")
         );
     }
 

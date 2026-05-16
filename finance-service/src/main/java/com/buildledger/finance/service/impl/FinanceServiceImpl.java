@@ -53,18 +53,13 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
 
         InvoiceResponseDTO result = mapInvoiceToResponse(invoiceRepository.save(invoice));
 
-        // ← INVOICE_SUBMITTED → notify vendor
-        notificationProducer.send("invoice-events", NotificationEvent.builder()
-                .recipientEmail(vendorUsername)
-                .recipientName(vendorName)
-                .type("INVOICE_SUBMITTED")
-                .subject("Invoice #" + result.getInvoiceId() + " submitted successfully")
-                .message("Dear " + vendorName + ", your invoice #" + result.getInvoiceId()
+        sendInvoiceNotif("INVOICE_SUBMITTED",
+                "Invoice #" + result.getInvoiceId() + " submitted successfully",
+                "Dear " + vendorName + ", your invoice #" + result.getInvoiceId()
                         + " for amount " + request.getAmount()
-                        + " has been submitted and is now UNDER REVIEW.")
-                .referenceId(String.valueOf(result.getInvoiceId()))
-                .referenceType("INVOICE")
-                .build());
+                        + " has been submitted and is now UNDER REVIEW.",
+                String.valueOf(result.getInvoiceId()),
+                vendorUsername, ADMIN_USERNAME);
 
         return result;
     }
@@ -101,18 +96,13 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         invoice.setStatus(InvoiceStatus.APPROVED);
         InvoiceResponseDTO result = mapInvoiceToResponse(invoiceRepository.save(invoice));
 
-        // ← INVOICE_APPROVED → notify vendor
-        notificationProducer.send("invoice-events", NotificationEvent.builder()
-                .recipientEmail(invoice.getVendorUsername())
-                .recipientName(invoice.getVendorName())
-                .type("INVOICE_APPROVED")
-                .subject("Your invoice #" + invoiceId + " has been approved")
-                .message("Dear " + invoice.getVendorName() + ", your invoice #" + invoiceId
+        sendInvoiceNotif("INVOICE_APPROVED",
+                "Your invoice #" + invoiceId + " has been approved",
+                "Dear " + invoice.getVendorName() + ", your invoice #" + invoiceId
                         + " for amount " + invoice.getAmount()
-                        + " has been APPROVED. Payment will be processed soon.")
-                .referenceId(String.valueOf(invoiceId))
-                .referenceType("INVOICE")
-                .build());
+                        + " has been APPROVED. Payment will be processed soon.",
+                String.valueOf(invoiceId),
+                invoice.getVendorUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -127,18 +117,13 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         invoice.setRejectionReason(reason);
         InvoiceResponseDTO result = mapInvoiceToResponse(invoiceRepository.save(invoice));
 
-        // ← INVOICE_REJECTED → notify vendor
-        notificationProducer.send("invoice-events", NotificationEvent.builder()
-                .recipientEmail(invoice.getVendorUsername())
-                .recipientName(invoice.getVendorName())
-                .type("INVOICE_REJECTED")
-                .subject("Your invoice #" + invoiceId + " has been rejected")
-                .message("Dear " + invoice.getVendorName() + ", your invoice #" + invoiceId
+        sendInvoiceNotif("INVOICE_REJECTED",
+                "Your invoice #" + invoiceId + " has been rejected",
+                "Dear " + invoice.getVendorName() + ", your invoice #" + invoiceId
                         + " has been REJECTED. Reason: " + reason
-                        + ". Please review and resubmit if needed.")
-                .referenceId(String.valueOf(invoiceId))
-                .referenceType("INVOICE")
-                .build());
+                        + ". Please review and resubmit if needed.",
+                String.valueOf(invoiceId),
+                invoice.getVendorUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -154,17 +139,12 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
 
         invoiceRepository.delete(invoice);
 
-        // ← INVOICE_DELETED → notify vendor
-        notificationProducer.send("invoice-events", NotificationEvent.builder()
-                .recipientEmail(vendorUsername)
-                .recipientName(vendorName)
-                .type("INVOICE_DELETED")
-                .subject("Invoice #" + invoiceId + " has been deleted")
-                .message("Dear " + vendorName + ", invoice #" + invoiceId
-                        + " has been permanently deleted.")
-                .referenceId(String.valueOf(invoiceId))
-                .referenceType("INVOICE")
-                .build());
+        sendInvoiceNotif("INVOICE_DELETED",
+                "Invoice #" + invoiceId + " has been deleted",
+                "Dear " + vendorName + ", invoice #" + invoiceId
+                        + " has been permanently deleted.",
+                String.valueOf(invoiceId),
+                vendorUsername, ADMIN_USERNAME);
     }
 
     // ── Payment ───────────────────────────────────────────────────────────────
@@ -187,19 +167,14 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
 
         PaymentResponseDTO result = mapPaymentToResponse(paymentRepository.save(payment));
 
-        // ← PAYMENT_INITIATED → notify vendor
-        notificationProducer.send("payment-events", NotificationEvent.builder()
-                .recipientEmail(invoice.getVendorUsername())
-                .recipientName(invoice.getVendorName())
-                .type("PAYMENT_INITIATED")
-                .subject("Payment initiated for your invoice #" + request.getInvoiceId())
-                .message("Dear " + invoice.getVendorName() + ", a payment of " + request.getAmount()
+        sendPaymentNotif("PAYMENT_INITIATED",
+                "Payment initiated for your invoice #" + request.getInvoiceId(),
+                "Dear " + invoice.getVendorName() + ", a payment of " + request.getAmount()
                         + " has been initiated for invoice #" + request.getInvoiceId()
                         + ". Payment method: " + request.getMethod()
-                        + ". Transaction ref: " + request.getTransactionReference())
-                .referenceId(String.valueOf(result.getPaymentId()))
-                .referenceType("PAYMENT")
-                .build());
+                        + ". Transaction ref: " + request.getTransactionReference(),
+                String.valueOf(result.getPaymentId()),
+                invoice.getVendorUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -234,34 +209,24 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
         payment.setStatus(newStatus);
 
         if (newStatus == PaymentStatus.PROCESSING) {
-            // ← PAYMENT_PROCESSING → notify vendor
-            notificationProducer.send("payment-events", NotificationEvent.builder()
-                    .recipientEmail(payment.getInvoice().getVendorUsername())
-                    .recipientName(payment.getInvoice().getVendorName())
-                    .type("PAYMENT_PROCESSING")
-                    .subject("Your payment is being processed")
-                    .message("Dear " + payment.getInvoice().getVendorName()
+            sendPaymentNotif("PAYMENT_PROCESSING",
+                    "Your payment is being processed",
+                    "Dear " + payment.getInvoice().getVendorName()
                             + ", your payment of " + payment.getAmount()
                             + " for invoice #" + payment.getInvoice().getInvoiceId()
-                            + " is now being PROCESSED.")
-                    .referenceId(String.valueOf(paymentId))
-                    .referenceType("PAYMENT")
-                    .build());
+                            + " is now being PROCESSED.",
+                    String.valueOf(paymentId),
+                    payment.getInvoice().getVendorUsername(), ADMIN_USERNAME);
 
         } else if (newStatus == PaymentStatus.FAILED) {
-            // ← PAYMENT_FAILED → notify vendor
-            notificationProducer.send("payment-events", NotificationEvent.builder()
-                    .recipientEmail(payment.getInvoice().getVendorUsername())
-                    .recipientName(payment.getInvoice().getVendorName())
-                    .type("PAYMENT_FAILED")
-                    .subject("Payment FAILED for invoice #" + payment.getInvoice().getInvoiceId())
-                    .message("Dear " + payment.getInvoice().getVendorName()
+            sendPaymentNotif("PAYMENT_FAILED",
+                    "Payment FAILED for invoice #" + payment.getInvoice().getInvoiceId(),
+                    "Dear " + payment.getInvoice().getVendorName()
                             + ", your payment of " + payment.getAmount()
                             + " for invoice #" + payment.getInvoice().getInvoiceId()
-                            + " has FAILED. Please contact support.")
-                    .referenceId(String.valueOf(paymentId))
-                    .referenceType("PAYMENT")
-                    .build());
+                            + " has FAILED. Please contact support.",
+                    String.valueOf(paymentId),
+                    payment.getInvoice().getVendorUsername(), ADMIN_USERNAME);
 
         } else if (newStatus == PaymentStatus.COMPLETED) {
             // When payment COMPLETED → mark invoice as PAID
@@ -271,37 +236,54 @@ class FinanceServiceImpl implements com.buildledger.finance.service.FinanceServi
             log.info("Invoice {} marked PAID after payment {} completed",
                     invoice.getInvoiceId(), paymentId);
 
-            // ← PAYMENT_COMPLETED + INVOICE_PAID → notify vendor
-            notificationProducer.send("payment-events", NotificationEvent.builder()
-                    .recipientEmail(invoice.getVendorUsername())
-                    .recipientName(invoice.getVendorName())
-                    .type("PAYMENT_COMPLETED")
-                    .subject("Payment completed — invoice paid")
-                    .message("Dear " + invoice.getVendorName()
+            sendPaymentNotif("PAYMENT_COMPLETED",
+                    "Payment completed — invoice paid",
+                    "Dear " + invoice.getVendorName()
                             + ", payment of " + payment.getAmount()
                             + " for invoice #" + invoice.getInvoiceId()
                             + " has been COMPLETED. Transaction ref: "
-                            + payment.getTransactionReference())
-                    .referenceId(String.valueOf(paymentId))
-                    .referenceType("PAYMENT")
-                    .build());
+                            + payment.getTransactionReference(),
+                    String.valueOf(paymentId),
+                    invoice.getVendorUsername(), ADMIN_USERNAME);
 
-            notificationProducer.send("invoice-events", NotificationEvent.builder()
-                    .recipientEmail(invoice.getVendorUsername())
-                    .recipientName(invoice.getVendorName())
-                    .type("INVOICE_PAID")
-                    .subject("Invoice #" + invoice.getInvoiceId() + " has been paid")
-                    .message("Dear " + invoice.getVendorName()
+            sendInvoiceNotif("INVOICE_PAID",
+                    "Invoice #" + invoice.getInvoiceId() + " has been paid",
+                    "Dear " + invoice.getVendorName()
                             + ", invoice #" + invoice.getInvoiceId()
                             + " for amount " + invoice.getAmount()
                             + " has been marked as PAID. Transaction ref: "
-                            + payment.getTransactionReference())
-                    .referenceId(String.valueOf(invoice.getInvoiceId()))
-                    .referenceType("INVOICE")
-                    .build());
+                            + payment.getTransactionReference(),
+                    String.valueOf(invoice.getInvoiceId()),
+                    invoice.getVendorUsername(), ADMIN_USERNAME);
         }
 
         return mapPaymentToResponse(paymentRepository.save(payment));
+    }
+
+    private static final String ADMIN_USERNAME = "admin";
+
+    private void sendInvoiceNotif(String type, String subject, String message,
+                                  String refId, String... recipients) {
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (String r : recipients) { if (r != null && !r.isBlank()) seen.add(r); }
+        for (String r : seen) {
+            notificationProducer.send("invoice-events", NotificationEvent.builder()
+                    .recipientEmail(r).recipientName(r)
+                    .type(type).subject(subject).message(message)
+                    .referenceId(refId).referenceType("INVOICE").build());
+        }
+    }
+
+    private void sendPaymentNotif(String type, String subject, String message,
+                                  String refId, String... recipients) {
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (String r : recipients) { if (r != null && !r.isBlank()) seen.add(r); }
+        for (String r : seen) {
+            notificationProducer.send("payment-events", NotificationEvent.builder()
+                    .recipientEmail(r).recipientName(r)
+                    .type(type).subject(subject).message(message)
+                    .referenceId(refId).referenceType("PAYMENT").build());
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -60,18 +60,14 @@ public class ComplianceServiceImpl implements ComplianceService {
 
         ComplianceRecordResponseDTO result = mapToResponse(complianceRecordRepository.save(record));
 
-        notificationProducer.send("compliance-events", NotificationEvent.builder()
-                .recipientEmail("")
-                .recipientName(reviewerUsername)
-                .type("COMPLIANCE_RECORD_CREATED")
-                .subject("New compliance record created for contract #" + request.getContractId())
-                .message("A new compliance record has been created for contract #" + request.getContractId()
+        sendComplianceNotif("COMPLIANCE_RECORD_CREATED",
+                "New compliance record created for contract #" + request.getContractId(),
+                "A new compliance record has been created for contract #" + request.getContractId()
                         + ". Type: " + request.getType()
                         + ", Due date: " + request.getDate()
-                        + ". Status: PENDING.")
-                .referenceId(String.valueOf(result.getComplianceId()))
-                .referenceType("COMPLIANCE")
-                .build());
+                        + ". Status: PENDING.",
+                String.valueOf(result.getComplianceId()),
+                reviewerUsername, ADMIN_USERNAME);
 
         return result;
     }
@@ -127,16 +123,12 @@ public class ComplianceServiceImpl implements ComplianceService {
 
         ComplianceRecordResponseDTO result = mapToResponse(complianceRecordRepository.save(record));
 
-        notificationProducer.send("compliance-events", NotificationEvent.builder()
-                .recipientEmail("")
-                .recipientName(reviewerUsername)
-                .type("COMPLIANCE_RECORD_UPDATED")
-                .subject("Compliance record #" + id + " has been updated")
-                .message("Compliance record #" + id + " for contract #" + record.getContractId()
-                        + " has been updated by " + reviewerUsername + ".")
-                .referenceId(String.valueOf(id))
-                .referenceType("COMPLIANCE")
-                .build());
+        sendComplianceNotif("COMPLIANCE_RECORD_UPDATED",
+                "Compliance record #" + id + " has been updated",
+                "Compliance record #" + id + " for contract #" + record.getContractId()
+                        + " has been updated by " + reviewerUsername + ".",
+                String.valueOf(id),
+                reviewerUsername, ADMIN_USERNAME);
 
         return result;
     }
@@ -151,7 +143,7 @@ public class ComplianceServiceImpl implements ComplianceService {
             if (remarks == null || remarks.isBlank()) {
                 throw new BadRequestException(
                         "Remarks are required when marking a compliance record as FAILED. " +
-                        "Please provide a reason explaining why the check failed.");
+                                "Please provide a reason explaining why the check failed.");
             }
             record.setNotes(remarks);
         }
@@ -169,56 +161,42 @@ public class ComplianceServiceImpl implements ComplianceService {
         // Automatically record the status change in the immutable audit log (fail-open)
         try {
             auditService.createAuditEntry(
-                record.getComplianceId(),
-                newStatus.name(),
-                reviewerUsername,
-                record.getNotes()
+                    record.getComplianceId(),
+                    newStatus.name(),
+                    reviewerUsername,
+                    record.getNotes()
             );
         } catch (Exception e) {
             log.warn("Audit log creation failed for compliance record #{} — compliance update was still saved: {}",
-                record.getComplianceId(), e.getMessage());
+                    record.getComplianceId(), e.getMessage());
         }
 
-        // Fires on EVERY status change
-        notificationProducer.send("compliance-events", NotificationEvent.builder()
-                .recipientEmail("")
-                .recipientName(reviewerUsername)
-                .type("COMPLIANCE_STATUS_CHANGED")
-                .subject("Compliance record #" + record.getComplianceId() + " status changed")
-                .message("Compliance record #" + record.getComplianceId()
+        sendComplianceNotif("COMPLIANCE_STATUS_CHANGED",
+                "Compliance record #" + record.getComplianceId() + " status changed",
+                "Compliance record #" + record.getComplianceId()
                         + " for contract #" + record.getContractId()
                         + " status changed from " + current + " to " + newStatus
-                        + ". Reviewed by: " + reviewerUsername)
-                .referenceId(String.valueOf(record.getComplianceId()))
-                .referenceType("COMPLIANCE")
-                .build());
+                        + ". Reviewed by: " + reviewerUsername,
+                String.valueOf(record.getComplianceId()),
+                reviewerUsername, ADMIN_USERNAME);
 
         // Fires based on specific status
         if (newStatus == ComplianceStatus.PASSED) {
-            notificationProducer.send("compliance-events", NotificationEvent.builder()
-                    .recipientEmail("")
-                    .recipientName(reviewerUsername)
-                    .type("COMPLIANCE_CHECK_PASSED")
-                    .subject("Compliance check PASSED for record #" + id)
-                    .message("Compliance record #" + id + " for contract #" + record.getContractId()
-                            + " has PASSED the compliance check. Reviewed by: " + reviewerUsername)
-                    .referenceId(String.valueOf(id))
-                    .referenceType("COMPLIANCE")
-                    .build());
+            sendComplianceNotif("COMPLIANCE_CHECK_PASSED",
+                    "Compliance check PASSED for record #" + id,
+                    "Compliance record #" + id + " for contract #" + record.getContractId()
+                            + " has PASSED the compliance check. Reviewed by: " + reviewerUsername,
+                    String.valueOf(id),
+                    reviewerUsername, ADMIN_USERNAME);
 
         } else if (newStatus == ComplianceStatus.FAILED) {
-            notificationProducer.send("compliance-events", NotificationEvent.builder()
-                    .recipientEmail("")
-                    .recipientName(reviewerUsername)
-                    .type("COMPLIANCE_CHECK_FAILED")
-                    .subject("Compliance check FAILED for record #" + id)
-                    .message("Compliance record #" + id + " for contract #" + record.getContractId()
+            sendComplianceNotif("COMPLIANCE_CHECK_FAILED",
+                    "Compliance check FAILED for record #" + id,
+                    "Compliance record #" + id + " for contract #" + record.getContractId()
                             + " has FAILED the compliance check. Immediate action required. "
-                            + "Reviewed by: " + reviewerUsername)
-                    .referenceId(String.valueOf(id))
-                    .referenceType("COMPLIANCE")
-                    .build());
-
+                            + "Reviewed by: " + reviewerUsername,
+                    String.valueOf(id),
+                    reviewerUsername, ADMIN_USERNAME);
         }
 
         return result;
@@ -234,16 +212,12 @@ public class ComplianceServiceImpl implements ComplianceService {
         complianceRecordRepository.delete(record);
         log.info("Compliance record deleted: id={}", id);
 
-        notificationProducer.send("compliance-events", NotificationEvent.builder()
-                .recipientEmail("")
-                .recipientName("Admin")
-                .type("COMPLIANCE_RECORD_DELETED")
-                .subject("Compliance record #" + id + " has been deleted")
-                .message("Compliance record #" + id + " for contract #" + record.getContractId()
-                        + " has been permanently deleted.")
-                .referenceId(String.valueOf(id))
-                .referenceType("COMPLIANCE")
-                .build());
+        sendComplianceNotif("COMPLIANCE_RECORD_DELETED",
+                "Compliance record #" + id + " has been deleted",
+                "Compliance record #" + id + " for contract #" + record.getContractId()
+                        + " has been permanently deleted.",
+                String.valueOf(id),
+                record.getReviewedBy(), ADMIN_USERNAME);
     }
 
     @Override
@@ -251,6 +225,20 @@ public class ComplianceServiceImpl implements ComplianceService {
     public boolean isCompliancePassed(Long referenceId, ComplianceType type) {
         return complianceRecordRepository.existsByContractIdAndTypeAndStatusIn(
                 referenceId, type, List.of(ComplianceStatus.PASSED));
+    }
+
+    private static final String ADMIN_USERNAME = "admin";
+
+    private void sendComplianceNotif(String type, String subject, String message,
+                                     String refId, String... recipients) {
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (String r : recipients) { if (r != null && !r.isBlank()) seen.add(r); }
+        for (String r : seen) {
+            notificationProducer.send("compliance-events", NotificationEvent.builder()
+                    .recipientEmail(r).recipientName(r)
+                    .type(type).subject(subject).message(message)
+                    .referenceId(refId).referenceType("COMPLIANCE").build());
+        }
     }
 
     // ── Private Helpers ──────────────────────────────────────────────────────
@@ -269,8 +257,8 @@ public class ComplianceServiceImpl implements ComplianceService {
                 String status = (String) res.getData().get("status");
                 if (!"MARKED_DELIVERED".equals(status))
                     throw new BadRequestException(
-                        "A DELIVERY_CHECK compliance record can only be created for deliveries in MARKED_DELIVERED status. " +
-                        "Delivery #" + referenceId + " has status: " + status);
+                            "A DELIVERY_CHECK compliance record can only be created for deliveries in MARKED_DELIVERED status. " +
+                                    "Delivery #" + referenceId + " has status: " + status);
             }
             case SERVICE_CHECK -> {
                 ApiResponseDTO<Map<String, Object>> res;
@@ -284,8 +272,8 @@ public class ComplianceServiceImpl implements ComplianceService {
                 String status = (String) res.getData().get("status");
                 if (!"COMPLETED".equals(status))
                     throw new BadRequestException(
-                        "A SERVICE_CHECK compliance record can only be created for services in COMPLETED status. " +
-                        "Service #" + referenceId + " has status: " + status);
+                            "A SERVICE_CHECK compliance record can only be created for services in COMPLETED status. " +
+                                    "Service #" + referenceId + " has status: " + status);
             }
         }
     }
@@ -308,8 +296,8 @@ public class ComplianceServiceImpl implements ComplianceService {
         String contractStatus = (String) res.getData().get("status");
         if (!"ACTIVE".equals(contractStatus) && !"COMPLETED".equals(contractStatus)) {
             throw new BadRequestException(
-                "Compliance records can only be created for ACTIVE or COMPLETED contracts. " +
-                "Contract #" + contractId + " has status: " + contractStatus);
+                    "Compliance records can only be created for ACTIVE or COMPLETED contracts. " +
+                            "Contract #" + contractId + " has status: " + contractStatus);
         }
     }
 

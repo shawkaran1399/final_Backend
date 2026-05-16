@@ -204,13 +204,14 @@ public class ContractServiceImpl implements ContractService {
 
         ContractResponseDTO result = mapToResponse(saved);
 
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(vendorUsername).recipientName(vendorName)
-                .type("CONTRACT_CREATED").subject("A new contract has been created for you")
-                .message("Dear " + vendorName + ", a new contract for project '" + project.getName()
-                        + "' has been created. Value: " + request.getValue()
-                        + ". Dates: " + request.getStartDate() + " to " + request.getEndDate() + ". Status: DRAFT.")
-                .referenceId(String.valueOf(result.getContractId())).referenceType("CONTRACT").build());
+        sendContractNotif("CONTRACT_CREATED",
+                "A new contract has been created for project '" + project.getName() + "'",
+                "A new contract has been created for project '" + project.getName()
+                        + "'. Vendor: " + vendorName
+                        + ". Value: " + request.getValue()
+                        + ". Dates: " + request.getStartDate() + " to " + request.getEndDate() + ". Status: DRAFT.",
+                String.valueOf(result.getContractId()),
+                vendorUsername, project.getManagerUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -276,12 +277,12 @@ public class ContractServiceImpl implements ContractService {
 
         ContractResponseDTO result = mapToResponse(contractRepository.save(contract));
 
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(contract.getVendorUsername()).recipientName(contract.getVendorName())
-                .type("CONTRACT_UPDATED").subject("Your contract has been updated")
-                .message("Dear " + contract.getVendorName() + ", your contract for project '"
-                        + contract.getProjectName() + "' has been updated by admin.")
-                .referenceId(String.valueOf(contractId)).referenceType("CONTRACT").build());
+        sendContractNotif("CONTRACT_UPDATED",
+                "Your contract has been updated",
+                "Dear " + contract.getVendorName() + ", your contract for project '"
+                        + contract.getProjectName() + "' has been updated by admin.",
+                String.valueOf(contractId),
+                contract.getVendorUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -319,10 +320,9 @@ public class ContractServiceImpl implements ContractService {
                 message = "Dear " + contract.getVendorName() + ", status: " + current + " → " + newStatus; }
         }
 
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(contract.getVendorUsername()).recipientName(contract.getVendorName())
-                .type(type).subject(subject).message(message)
-                .referenceId(String.valueOf(contract.getContractId())).referenceType("CONTRACT").build());
+        sendContractNotif(type, subject, message,
+                String.valueOf(contract.getContractId()),
+                contract.getVendorUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -348,14 +348,18 @@ public class ContractServiceImpl implements ContractService {
         contract.setStatus(isAccept ? ContractStatus.ACTIVE : ContractStatus.REJECTED);
         ContractResponseDTO result = mapToResponse(contractRepository.save(contract));
 
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail("").recipientName(contract.getVendorName())
-                .type(isAccept ? "CONTRACT_VENDOR_ACCEPTED" : "CONTRACT_VENDOR_REJECTED")
-                .subject(isAccept ? "Vendor accepted contract #" + contractId : "Vendor rejected contract #" + contractId)
-                .message(isAccept
+        // Get PM username from project to notify them of vendor's response
+        String pmUsername = projectRepository.findById(contract.getProjectId())
+                .map(p -> p.getManagerUsername() != null ? p.getManagerUsername() : "")
+                .orElse("");
+        sendContractNotif(
+                isAccept ? "CONTRACT_VENDOR_ACCEPTED" : "CONTRACT_VENDOR_REJECTED",
+                isAccept ? "Vendor accepted contract #" + contractId : "Vendor rejected contract #" + contractId,
+                isAccept
                         ? "Vendor " + contract.getVendorName() + " ACCEPTED contract #" + contractId + " for '" + contract.getProjectName() + "'."
-                        : "Vendor " + contract.getVendorName() + " REJECTED contract #" + contractId + " for '" + contract.getProjectName() + "'. Reason: " + remarks)
-                .referenceId(String.valueOf(contractId)).referenceType("CONTRACT").build());
+                        : "Vendor " + contract.getVendorName() + " REJECTED contract #" + contractId + " for '" + contract.getProjectName() + "'. Reason: " + remarks,
+                String.valueOf(contractId),
+                contract.getVendorUsername(), pmUsername, ADMIN_USERNAME);
 
         return result;
     }
@@ -372,11 +376,11 @@ public class ContractServiceImpl implements ContractService {
         String projectName    = contract.getProjectName();
         contractRepository.delete(contract);
 
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(vendorUsername).recipientName(vendorName)
-                .type("CONTRACT_DELETED").subject("Your contract has been deleted")
-                .message("Dear " + vendorName + ", your DRAFT contract for project '" + projectName + "' has been deleted.")
-                .referenceId(String.valueOf(contractId)).referenceType("CONTRACT").build());
+        sendContractNotif("CONTRACT_DELETED",
+                "Your contract has been deleted",
+                "Dear " + vendorName + ", your DRAFT contract for project '" + projectName + "' has been deleted.",
+                String.valueOf(contractId),
+                vendorUsername, ADMIN_USERNAME);
     }
 
     // ── Terms ─────────────────────────────────────────────────────────────────
@@ -393,12 +397,12 @@ public class ContractServiceImpl implements ContractService {
 
         ContractTermResponseDTO result = mapTermToResponse(contractTermRepository.save(term));
 
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(contract.getVendorUsername()).recipientName(contract.getVendorName())
-                .type("CONTRACT_TERM_ADDED").subject("A new term added to your contract")
-                .message("Dear " + contract.getVendorName() + ", a new term has been added to your contract for '"
-                        + contract.getProjectName() + "': " + request.getDescription())
-                .referenceId(String.valueOf(contractId)).referenceType("CONTRACT").build());
+        sendContractNotif("CONTRACT_TERM_ADDED",
+                "A new term added to your contract",
+                "Dear " + contract.getVendorName() + ", a new term has been added to your contract for '"
+                        + contract.getProjectName() + "': " + request.getDescription(),
+                String.valueOf(contractId),
+                contract.getVendorUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -421,12 +425,12 @@ public class ContractServiceImpl implements ContractService {
 
         ContractTermResponseDTO result = mapTermToResponse(contractTermRepository.save(term));
 
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(term.getContract().getVendorUsername()).recipientName(term.getContract().getVendorName())
-                .type("CONTRACT_TERM_EDITED").subject("A term in your contract has been updated")
-                .message("Dear " + term.getContract().getVendorName() + ", a term in your contract for '"
-                        + term.getContract().getProjectName() + "' has been updated.")
-                .referenceId(String.valueOf(term.getContract().getContractId())).referenceType("CONTRACT").build());
+        sendContractNotif("CONTRACT_TERM_EDITED",
+                "A term in your contract has been updated",
+                "Dear " + term.getContract().getVendorName() + ", a term in your contract for '"
+                        + term.getContract().getProjectName() + "' has been updated.",
+                String.valueOf(term.getContract().getContractId()),
+                term.getContract().getVendorUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -443,12 +447,26 @@ public class ContractServiceImpl implements ContractService {
         Long   contractId     = term.getContract().getContractId();
         contractTermRepository.delete(term);
 
-        notificationProducer.send("contract-events", NotificationEvent.builder()
-                .recipientEmail(vendorUsername).recipientName(vendorName)
-                .type("CONTRACT_TERM_DELETED").subject("A term removed from your contract")
-                .message("Dear " + vendorName + ", a term has been removed from your contract for '"
-                        + projectName + "'. Removed: " + termDesc)
-                .referenceId(String.valueOf(contractId)).referenceType("CONTRACT").build());
+        sendContractNotif("CONTRACT_TERM_DELETED",
+                "A term removed from your contract",
+                "Dear " + vendorName + ", a term has been removed from your contract for '"
+                        + projectName + "'. Removed: " + termDesc,
+                String.valueOf(contractId),
+                vendorUsername, ADMIN_USERNAME);
+    }
+
+    private static final String ADMIN_USERNAME = "admin";
+
+    private void sendContractNotif(String type, String subject, String message,
+                                   String refId, String... recipients) {
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (String r : recipients) { if (r != null && !r.isBlank()) seen.add(r); }
+        for (String r : seen) {
+            notificationProducer.send("contract-events", NotificationEvent.builder()
+                    .recipientEmail(r).recipientName(r)
+                    .type(type).subject(subject).message(message)
+                    .referenceId(refId).referenceType("CONTRACT").build());
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -485,9 +503,14 @@ public class ContractServiceImpl implements ContractService {
     }
 
     private ContractResponseDTO mapToResponse(Contract c) {
+        String managerUsername = projectRepository.findById(c.getProjectId())
+                .map(p -> p.getManagerUsername() != null ? p.getManagerUsername() : "")
+                .orElse("");
         return ContractResponseDTO.builder()
                 .contractId(c.getContractId()).vendorId(c.getVendorId()).vendorName(c.getVendorName())
+                .vendorUsername(c.getVendorUsername())
                 .projectId(c.getProjectId()).projectName(c.getProjectName())
+                .managerUsername(managerUsername)
                 .startDate(c.getStartDate()).endDate(c.getEndDate()).value(c.getValue())
                 .status(c.getStatus()).description(c.getDescription()).vendorRemarks(c.getVendorRemarks())
                 .createdAt(c.getCreatedAt()).updatedAt(c.getUpdatedAt()).build();

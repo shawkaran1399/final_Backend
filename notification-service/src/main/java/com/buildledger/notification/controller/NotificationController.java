@@ -64,5 +64,26 @@ public class NotificationController {
         String email = authentication.getName();
         return ResponseEntity.ok(notificationService.getUnreadCount(email));
     }
-}
 
+    @PatchMapping("/{id}/admin-read")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Mark notification as admin-read [ADMIN only] — does not affect recipient read status")
+    public ResponseEntity<Notification> markAsAdminRead(@PathVariable Long id) {
+        return ResponseEntity.ok(notificationService.markAsAdminRead(id));
+    }
+
+    @PatchMapping("/admin-read-all")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Mark all notifications as admin-read [ADMIN only]")
+    public ResponseEntity<Void> markAllAsAdminRead() {
+        notificationService.markAllAsAdminRead();
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/admin-unread-count")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Get total system unread count for admin [ADMIN only]")
+    public ResponseEntity<Long> getAdminUnreadCount() {
+        return ResponseEntity.ok(notificationService.getAdminUnreadCount());
+    }
+}

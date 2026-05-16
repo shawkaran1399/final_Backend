@@ -11,9 +11,10 @@ public class ContractResponseDTO {
     private Long contractId;
     private Long vendorId;
     private String vendorName;
-    private String vendorUsername;   // ← ADD THIS
+    private String vendorUsername;
     private Long projectId;
     private String projectName;
+    private String managerUsername;
     private LocalDate startDate;
     private LocalDate endDate;
     private BigDecimal value;

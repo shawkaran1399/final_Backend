@@ -68,16 +68,16 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
         DeliveryResponseDTO result = mapToResponse(deliveryRepository.save(delivery));
 
-        notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail("").recipientName("Admin")
-                .type("DELIVERY_CREATED")
-                .subject("New delivery scheduled for contract #" + request.getContractId())
-                .message("A new delivery has been scheduled for contract #" + request.getContractId()
-                        + ". Item: " + request.getItem()
-                        + ", Quantity: " + request.getQuantity() + " " + request.getUnit()
-                        + ", Expected date: " + request.getDate())
-                .referenceId(String.valueOf(result.getDeliveryId()))
-                .referenceType("DELIVERY").build());
+        String createSubject = "New delivery scheduled for contract #" + request.getContractId();
+        String createMessage = "A new delivery has been scheduled for contract #" + request.getContractId()
+                + ". Item: " + request.getItem()
+                + ", Quantity: " + request.getQuantity() + " " + request.getUnit()
+                + ", Expected date: " + request.getDate();
+        String createRefId = String.valueOf(result.getDeliveryId());
+
+        // Notify PM, Vendor, Admin
+        sendDeliveryNotif("DELIVERY_CREATED", createSubject, createMessage, createRefId,
+                managerUsername, vendorUsername, ADMIN_USERNAME);
 
         return result;
     }
@@ -122,7 +122,6 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
 
     @Transactional(readOnly = true)
     public List<DeliveryResponseDTO> getDeliveriesByContract(Long contractId) {
-        validateContractActive(contractId);
         return deliveryRepository.findByContractId(contractId).stream().map(this::mapToResponse).collect(Collectors.toList());
     }
 
@@ -165,10 +164,16 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
             message = "Delivery #" + deliveryId + " has been marked as DELAYED.";
         }
 
-        notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail("").recipientName("Admin")
-                .type(type).subject(subject).message(message)
-                .referenceId(String.valueOf(deliveryId)).referenceType("DELIVERY").build());
+        // Route to the correct recipient based on who needs to know about this status change:
+        // ACCEPTED/REJECTED → vendor (PM acted, vendor needs to know)
+        // MARKED_DELIVERED/DELAYED → PM (vendor acted, PM needs to know)
+        String notifyRecipient = (nextStatus == DeliveryStatus.ACCEPTED || nextStatus == DeliveryStatus.REJECTED)
+                ? delivery.getVendorUsername()
+                : delivery.getManagerUsername();
+
+        // Notify the relevant party + admin
+        sendDeliveryNotif(type, subject, message, String.valueOf(deliveryId),
+                notifyRecipient, ADMIN_USERNAME);
 
         return result;
     }
@@ -194,7 +199,15 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         if (request.getUnit()     != null) delivery.setUnit(request.getUnit());
         if (request.getRemarks()  != null) delivery.setRemarks(request.getRemarks());
 
-        return mapToResponse(deliveryRepository.save(delivery));
+        DeliveryResponseDTO updated = mapToResponse(deliveryRepository.save(delivery));
+
+        String updSubject = "Delivery #" + deliveryId + " details updated";
+        String updMessage = "Delivery #" + deliveryId + " for contract #" + delivery.getContractId()
+                + " has been updated. Item: " + delivery.getItem() + ", Date: " + delivery.getDate() + ".";
+        sendDeliveryNotif("DELIVERY_UPDATED", updSubject, updMessage, String.valueOf(deliveryId),
+                delivery.getManagerUsername(), delivery.getVendorUsername(), ADMIN_USERNAME);
+
+        return updated;
     }
 
     public void deleteDelivery(Long deliveryId) {
@@ -202,6 +215,30 @@ class DeliveryServiceImpl implements com.buildledger.delivery.service.DeliverySe
         if (delivery.getStatus() != DeliveryStatus.PENDING)
             throw new BadRequestException("Only PENDING deliveries can be deleted.");
         deliveryRepository.delete(delivery);
+
+        String delSubject = "Delivery #" + deliveryId + " has been deleted";
+        String delMessage = "Delivery #" + deliveryId + " for contract #" + delivery.getContractId()
+                + " (Item: " + delivery.getItem() + ") has been permanently deleted.";
+        sendDeliveryNotif("DELIVERY_DELETED", delSubject, delMessage, String.valueOf(deliveryId),
+                delivery.getManagerUsername(), delivery.getVendorUsername(), ADMIN_USERNAME);
+    }
+
+    // ── Notification helper ──────────────────────────────────────────────────
+
+    private static final String ADMIN_USERNAME = "admin";
+
+    private void sendDeliveryNotif(String type, String subject, String message, String refId,
+                                   String... recipients) {
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (String r : recipients) {
+            if (r != null && !r.isBlank()) seen.add(r);
+        }
+        for (String r : seen) {
+            notificationProducer.send("delivery-events", NotificationEvent.builder()
+                    .recipientEmail(r).recipientName(r)
+                    .type(type).subject(subject).message(message)
+                    .referenceId(refId).referenceType("DELIVERY").build());
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

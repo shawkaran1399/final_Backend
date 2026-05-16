@@ -63,19 +63,38 @@ public class UserServiceImpl implements UserService {
         User saved = userRepository.save(user);
         log.info("User created: id={}, username={}, role={}", saved.getUserId(), saved.getUsername(), saved.getRole());
 
-        // ← NEW: Notify the created user
+        String userCreatedSubject = "Your BuildLedger account has been created";
+        String userCreatedMessage = "Dear " + saved.getName() + ", your account has been created successfully. "
+                + "Username: " + saved.getUsername()
+                + ", Role: " + saved.getRole()
+                + ". You can now log in to BuildLedger.";
+        String userCreatedRefId = String.valueOf(saved.getUserId());
+
+        // Notify the created user
         notificationProducer.send("iam-events", NotificationEvent.builder()
-                .recipientEmail(saved.getUsername())  // username — matches auth.getName()
+                .recipientEmail(saved.getUsername())
                 .recipientName(saved.getName())
                 .type("USER_CREATED")
-                .subject("Your BuildLedger account has been created")
-                .message("Dear " + saved.getName() + ", your account has been created successfully. "
-                        + "Username: " + saved.getUsername()
-                        + ", Role: " + saved.getRole()
-                        + ". You can now log in to BuildLedger.")
-                .referenceId(String.valueOf(saved.getUserId()))
+                .subject(userCreatedSubject)
+                .message(userCreatedMessage)
+                .referenceId(userCreatedRefId)
                 .referenceType("USER")
                 .build());
+
+        // Notify admin (skip if the created user IS admin to avoid duplicate)
+        if (!"admin".equals(saved.getUsername())) {
+            notificationProducer.send("iam-events", NotificationEvent.builder()
+                    .recipientEmail("admin")
+                    .recipientName("System Administrator")
+                    .type("USER_CREATED")
+                    .subject("New user created: " + saved.getUsername())
+                    .message("A new user has been created. Name: " + saved.getName()
+                            + ", Username: " + saved.getUsername()
+                            + ", Role: " + saved.getRole() + ".")
+                    .referenceId(userCreatedRefId)
+                    .referenceType("USER")
+                    .build());
+        }
 
         return mapToResponse(saved);
     }
@@ -111,8 +130,11 @@ public class UserServiceImpl implements UserService {
     public UserResponseDTO updateUser(Long userId, UpdateUserRequestDTO request) {
         User user = findById(userId);
 
-        boolean statusChanged = request.getStatus() != null
+        boolean statusChanged  = request.getStatus() != null
                 && request.getStatus() != user.getStatus();
+        boolean profileChanged = (request.getName()  != null)
+                || (request.getEmail() != null)
+                || (request.getPhone() != null);
         UserStatus oldStatus = user.getStatus();
 
         if (request.getName() != null) user.setName(request.getName());
@@ -128,18 +150,29 @@ public class UserServiceImpl implements UserService {
 
         UserResponseDTO result = mapToResponse(userRepository.save(user));
 
-        // ← NEW: USER_UPDATED — fires on every update
-        notificationProducer.send("iam-events", NotificationEvent.builder()
-                .recipientEmail(user.getUsername())  // username — matches auth.getName()
-                .recipientName(user.getName())
-                .type("USER_UPDATED")
-                .subject("Your account details have been updated")
-                .message("Dear " + user.getName() + ", your account details have been updated by the admin.")
-                .referenceId(String.valueOf(userId))
-                .referenceType("USER")
-                .build());
+        // USER_UPDATED — only fires when profile fields (name/email/phone) changed,
+        // not when the request only changed status
+        if (profileChanged) {
+            notificationProducer.send("iam-events", NotificationEvent.builder()
+                    .recipientEmail(user.getUsername())  // username — matches auth.getName()
+                    .recipientName(user.getName())
+                    .type("USER_UPDATED")
+                    .subject("Your account details have been updated")
+                    .message("Dear " + user.getName() + ", your account details have been updated by the admin.")
+                    .referenceId(String.valueOf(userId))
+                    .referenceType("USER")
+                    .build());
+            notificationProducer.send("iam-events", NotificationEvent.builder()
+                    .recipientEmail("admin").recipientName("System Administrator")
+                    .type("USER_UPDATED")
+                    .subject("User updated: " + user.getUsername())
+                    .message("User '" + user.getUsername() + "' profile has been updated.")
+                    .referenceId(String.valueOf(userId))
+                    .referenceType("USER")
+                    .build());
+        }
 
-        // ← NEW: USER_STATUS_CHANGED — fires only when status specifically changed
+        // USER_STATUS_CHANGED — fires only when status specifically changed
         if (statusChanged) {
             notificationProducer.send("iam-events", NotificationEvent.builder()
                     .recipientEmail(user.getUsername())
@@ -151,28 +184,51 @@ public class UserServiceImpl implements UserService {
                     .referenceId(String.valueOf(userId))
                     .referenceType("USER")
                     .build());
+            notificationProducer.send("iam-events", NotificationEvent.builder()
+                    .recipientEmail("admin").recipientName("System Administrator")
+                    .type("USER_STATUS_CHANGED")
+                    .subject("User status changed: " + user.getUsername())
+                    .message("User '" + user.getUsername() + "' status changed from " + oldStatus + " to " + request.getStatus() + ".")
+                    .referenceId(String.valueOf(userId))
+                    .referenceType("USER")
+                    .build());
         }
 
         return result;
     }
 
-    @Override
     public void deleteUser(Long userId) {
         User user = findById(userId);
-        userRepository.delete(user);
-        log.info("User deleted: id={}", userId);
 
-        // ← NEW: USER_DELETED
+        // Capture details BEFORE deleting
+        String username = user.getUsername();
+        String name     = user.getName();
+
+        // Notify deleted user
         notificationProducer.send("iam-events", NotificationEvent.builder()
-                .recipientEmail(user.getUsername())
-                .recipientName(user.getName())
+                .recipientEmail(username)
+                .recipientName(name)
                 .type("USER_DELETED")
-                .subject("Your account has been deleted")
-                .message("Dear " + user.getName() + ", your BuildLedger account has been permanently deleted. "
+                .subject("Your BuildLedger account has been deleted")
+                .message("Dear " + name + ", your BuildLedger account has been permanently deleted. "
                         + "Please contact support if this was unexpected.")
                 .referenceId(String.valueOf(userId))
                 .referenceType("USER")
                 .build());
+
+        // Notify admin
+        notificationProducer.send("iam-events", NotificationEvent.builder()
+                .recipientEmail("admin")
+                .recipientName("System Administrator")
+                .type("USER_DELETED")
+                .subject("User deleted: " + username)
+                .message("User '" + username + "' (Name: " + name + ") has been permanently deleted.")
+                .referenceId(String.valueOf(userId))
+                .referenceType("USER")
+                .build());
+
+        userRepository.delete(user);
+        log.info("User deleted: id={}, username={}", userId, username);
     }
 
     @Override

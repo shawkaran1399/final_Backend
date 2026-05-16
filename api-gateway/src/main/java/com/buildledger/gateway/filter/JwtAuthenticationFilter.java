@@ -40,25 +40,26 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     // Paths that do NOT require authentication
     private static final List<String> PUBLIC_PATHS = List.of(
-        "/api/auth/login",
-        "/api/vendors/register",
-        "/api/vendors/auth/login",           // pending vendor login
-        "/api/vendors/*/documents",        // vendor doc upload (POST) – public
-        "/api/vendors/*/documents/replace" // vendor doc replace (PUT) – public
+            "/api/auth/login",
+            "/api/vendors/register",
+            "/api/vendors/auth/login",           // pending vendor login
+            "/api/vendors/*/documents",        // vendor doc upload (POST) – public
+            "/api/vendors/*/documents/replace" // vendor doc replace (PUT) – public
     );
 
     // Read-only GET paths that are open to all
     private static final List<String> PUBLIC_GET_PATHS = List.of(
-        "/api/vendors/**",
-        "/api/contracts/**",
-        "/api/projects/**",
-        "/api/deliveries/**",
-        "/api/services/**",
-        "/api/invoices/**",
-        "/api/payments/**",
-        "/api/compliance/**",
-        "/api/audits/**",
-        "/api/users/**"
+            "/api/vendors/**",
+            "/api/contracts/**",
+            "/api/projects/**",
+            "/api/deliveries/**",
+            "/api/services/**",
+            "/api/invoices/**",
+            "/api/payments/**",
+            "/api/compliance/**",
+            "/api/audits/**",
+            "/api/users/**",
+            "/api/notifications/**"
     );
 
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
@@ -101,10 +102,10 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             Long userId = jwtUtil.extractUserId(token);
 
             ServerHttpRequest mutatedRequest = request.mutate()
-                .header("X-User-Id", userId != null ? userId.toString() : "")
-                .header("X-Username", username != null ? username : "")
-                .header("X-User-Role", role != null ? role : "")
-                .build();
+                    .header("X-User-Id", userId != null ? userId.toString() : "")
+                    .header("X-Username", username != null ? username : "")
+                    .header("X-User-Role", role != null ? role : "")
+                    .build();
 
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
         } catch (Exception e) {
@@ -121,7 +122,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
         // POST and PUT to vendor documents (upload/replace) are public
         if (path.matches("/api/vendors/\\d+/documents") &&
-            (HttpMethod.POST.equals(method) || HttpMethod.PUT.equals(method))) {
+                (HttpMethod.POST.equals(method) || HttpMethod.PUT.equals(method))) {
             return true;
         }
 
@@ -139,7 +140,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     private boolean isSwaggerPath(String path) {
         return path.contains("/swagger-ui") || path.contains("/v3/api-docs") ||
-               path.contains("/swagger-resources") || path.contains("/webjars");
+                path.contains("/swagger-resources") || path.contains("/webjars");
     }
 
     private boolean isActuatorPath(String path) {
@@ -172,4 +173,3 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         return -1; // Highest priority
     }
 }
-

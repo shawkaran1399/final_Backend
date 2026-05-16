@@ -62,15 +62,13 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
 
         ServiceResponseDTO result = mapToResponse(serviceRecordRepository.save(service));
 
-        notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail("").recipientName("Admin")
-                .type("SERVICE_CREATED")
-                .subject("New service scheduled for contract #" + request.getContractId())
-                .message("A new service has been scheduled for contract #" + request.getContractId()
+        sendServiceNotif("SERVICE_CREATED",
+                "New service scheduled for contract #" + request.getContractId(),
+                "A new service has been scheduled for contract #" + request.getContractId()
                         + ". Description: " + request.getDescription()
-                        + ". Expected completion: " + request.getCompletionDate())
-                .referenceId(String.valueOf(result.getServiceId()))
-                .referenceType("SERVICE").build());
+                        + ". Expected completion: " + request.getCompletionDate(),
+                String.valueOf(result.getServiceId()),
+                managerUsername, vendorUsername, ADMIN_USERNAME);
 
         return result;
     }
@@ -136,10 +134,15 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
             message = "Service #" + serviceId + " status: " + current + " → " + nextStatus;
         }
 
-        notificationProducer.send("delivery-events", NotificationEvent.builder()
-                .recipientEmail("").recipientName("Admin")
-                .type(type).subject(subject).message(message)
-                .referenceId(String.valueOf(serviceId)).referenceType("SERVICE").build());
+        // Route to the correct recipient based on who needs to know:
+        // COMPLETED / IN_PROGRESS → PM (vendor acted, PM needs to know)
+        // VERIFIED → vendor (PM acted, vendor needs to know)
+        String notifyRecipient = (nextStatus == ServiceStatus.VERIFIED)
+                ? service.getVendorUsername()
+                : service.getManagerUsername();
+
+        sendServiceNotif(type, subject, message, String.valueOf(serviceId),
+                service.getManagerUsername(), service.getVendorUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -157,14 +160,41 @@ class ServiceTrackingServiceImpl implements ServiceTrackingService {
         if (request.getCompletionDate() != null) service.setCompletionDate(request.getCompletionDate());
         if (request.getRemarks()       != null) service.setRemarks(request.getRemarks());
 
-        return mapToResponse(serviceRecordRepository.save(service));
+        ServiceResponseDTO updated = mapToResponse(serviceRecordRepository.save(service));
+        sendServiceNotif("SERVICE_UPDATED",
+                "Service #" + serviceId + " has been updated",
+                "Service #" + serviceId + " for contract #" + service.getContractId()
+                        + " details have been updated.",
+                String.valueOf(serviceId),
+                service.getManagerUsername(), service.getVendorUsername(), ADMIN_USERNAME);
+        return updated;
     }
 
     public void deleteService(Long serviceId) {
         ServiceRecord service = findById(serviceId);
         if (service.getStatus() != ServiceStatus.PENDING)
             throw new BadRequestException("Only PENDING services can be deleted.");
+        sendServiceNotif("SERVICE_DELETED",
+                "Service #" + serviceId + " has been deleted",
+                "Service #" + serviceId + " for contract #" + service.getContractId()
+                        + " has been permanently deleted.",
+                String.valueOf(serviceId),
+                service.getManagerUsername(), service.getVendorUsername(), ADMIN_USERNAME);
         serviceRecordRepository.delete(service);
+    }
+
+    private static final String ADMIN_USERNAME = "admin";
+
+    private void sendServiceNotif(String type, String subject, String message,
+                                  String refId, String... recipients) {
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (String r : recipients) { if (r != null && !r.isBlank()) seen.add(r); }
+        for (String r : seen) {
+            notificationProducer.send("delivery-events", NotificationEvent.builder()
+                    .recipientEmail(r).recipientName(r)
+                    .type(type).subject(subject).message(message)
+                    .referenceId(refId).referenceType("SERVICE").build());
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

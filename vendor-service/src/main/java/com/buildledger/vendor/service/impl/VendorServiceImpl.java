@@ -80,16 +80,11 @@ public class VendorServiceImpl implements VendorService {
                 .build();
         VendorResponseDTO result = mapToResponse(vendorRepository.save(vendor));
 
-        notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(request.getUsername())
-                .recipientName(request.getName())
-                .type("VENDOR_REGISTERED")
-                .subject("Welcome to BuildLedger — Registration Received")
-                .message("Dear " + request.getName() + ", your vendor registration has been received successfully. "
-                        + "Please upload your documents to proceed with verification.")
-                .referenceId(String.valueOf(result.getVendorId()))
-                .referenceType("VENDOR")
-                .build());
+        sendVendorNotif("VENDOR_REGISTERED",
+                "Welcome to BuildLedger — Registration Received",
+                "Dear " + request.getName() + ", your vendor registration has been received successfully. Please upload your documents to proceed with verification.",
+                String.valueOf(result.getVendorId()),
+                request.getUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -145,15 +140,11 @@ public class VendorServiceImpl implements VendorService {
         }
         VendorResponseDTO result = mapToResponse(vendorRepository.save(vendor));
 
-        notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getUsername())
-                .recipientName(vendor.getName())
-                .type("VENDOR_PROFILE_UPDATED")
-                .subject("Your vendor profile has been updated")
-                .message("Dear " + vendor.getName() + ", your vendor profile has been updated successfully.")
-                .referenceId(String.valueOf(vendor.getVendorId()))
-                .referenceType("VENDOR")
-                .build());
+        sendVendorNotif("VENDOR_PROFILE_UPDATED",
+                "Your vendor profile has been updated",
+                "Dear " + vendor.getName() + ", your vendor profile has been updated successfully.",
+                String.valueOf(vendor.getVendorId()),
+                vendor.getUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -174,16 +165,11 @@ public class VendorServiceImpl implements VendorService {
         vendorRepository.delete(vendor);
         log.info("Vendor deleted: id={}, status={}", vendorId, vendor.getStatus());
 
-        notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getUsername())
-                .recipientName(vendor.getName())
-                .type("VENDOR_DELETED")
-                .subject("Your vendor account has been deleted")
-                .message("Dear " + vendor.getName() + ", your vendor account has been permanently "
-                        + "deleted from BuildLedger. Please contact support if this was unexpected.")
-                .referenceId(String.valueOf(vendorId))
-                .referenceType("VENDOR")
-                .build());
+        sendVendorNotif("VENDOR_DELETED",
+                "Your vendor account has been deleted",
+                "Dear " + vendor.getName() + ", your vendor account has been permanently deleted from BuildLedger. Please contact support if this was unexpected.",
+                String.valueOf(vendorId),
+                vendor.getUsername(), ADMIN_USERNAME);
     }
 
     private void checkNoActiveContracts(Vendor vendor) {
@@ -204,10 +190,10 @@ public class VendorServiceImpl implements VendorService {
         }
         if (res.isSuccess() && res.getData() != null && !res.getData().isEmpty()) {
             throw new VendorException(
-                "Cannot delete vendor #" + vendor.getVendorId() + " (" + vendor.getName() + "). " +
-                "This vendor is allocated to " + res.getData().size() + " contract(s). " +
-                "Please reassign or close all contracts before deleting an ACTIVE vendor.",
-                HttpStatus.CONFLICT);
+                    "Cannot delete vendor #" + vendor.getVendorId() + " (" + vendor.getName() + "). " +
+                            "This vendor is allocated to " + res.getData().size() + " contract(s). " +
+                            "Please reassign or close all contracts before deleting an ACTIVE vendor.",
+                    HttpStatus.CONFLICT);
         }
     }
 
@@ -245,16 +231,11 @@ public class VendorServiceImpl implements VendorService {
         VendorDocument saved = vendorDocumentRepository.save(document);
         log.info("Document saved: id={}", saved.getDocumentId());
 
-        notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getUsername())
-                .recipientName(vendor.getName())
-                .type("VENDOR_DOCUMENT_PENDING")
-                .subject("Document uploaded — pending review")
-                .message("Dear " + vendor.getName() + ", your document has been uploaded successfully and is now "
-                        + "pending review by our team. You will be notified once the review is complete.")
-                .referenceId(String.valueOf(vendor.getVendorId()))
-                .referenceType("VENDOR")
-                .build());
+        sendVendorNotif("VENDOR_DOCUMENT_PENDING",
+                "Document uploaded — pending review",
+                "Dear " + vendor.getName() + ", your document has been uploaded successfully and is now pending review by our team. You will be notified once the review is complete.",
+                String.valueOf(vendor.getVendorId()),
+                vendor.getUsername(), ADMIN_USERNAME);
 
         return mapDocumentToResponse(saved);
     }
@@ -321,16 +302,11 @@ public class VendorServiceImpl implements VendorService {
 
         VendorDocumentResponseDTO result = mapDocumentToResponse(vendorDocumentRepository.save(existing));
 
-        notificationProducer.send("vendor-events", NotificationEvent.builder()
-                .recipientEmail(vendor.getUsername())
-                .recipientName(vendor.getName())
-                .type("VENDOR_DOCUMENT_REPLACED")
-                .subject("Document replaced — pending review")
-                .message("Dear " + vendor.getName() + ", your document has been replaced successfully "
-                        + "and is now pending review again. You will be notified once reviewed.")
-                .referenceId(String.valueOf(vendor.getVendorId()))
-                .referenceType("VENDOR")
-                .build());
+        sendVendorNotif("VENDOR_DOCUMENT_REPLACED",
+                "Document replaced — pending review",
+                "Dear " + vendor.getName() + ", your document has been replaced successfully and is now pending review again. You will be notified once reviewed.",
+                String.valueOf(vendor.getVendorId()),
+                vendor.getUsername(), ADMIN_USERNAME);
 
         return result;
     }
@@ -358,36 +334,37 @@ public class VendorServiceImpl implements VendorService {
         vendorDocumentRepository.save(document);
 
         if (status == VerificationStatus.APPROVED) {
-            notificationProducer.send("vendor-events", NotificationEvent.builder()
-                    .recipientEmail(document.getVendor().getUsername())
-                    .recipientName(document.getVendor().getName())
-                    .type("VENDOR_DOCUMENT_APPROVED")
-                    .subject("Your document has been approved")
-                    .message("Dear " + document.getVendor().getName() + ", your submitted document "
-                            + "has been APPROVED by " + reviewerUsername
-                            + ". Your account will be activated shortly.")
-                    .referenceId(String.valueOf(document.getVendor().getVendorId()))
-                    .referenceType("VENDOR")
-                    .build());
+            sendVendorNotif("VENDOR_DOCUMENT_APPROVED",
+                    "Your document has been approved",
+                    "Dear " + document.getVendor().getName() + ", your submitted document has been APPROVED by " + reviewerUsername + ". Your account will be activated shortly.",
+                    String.valueOf(document.getVendor().getVendorId()),
+                    document.getVendor().getUsername(), ADMIN_USERNAME);
         }
 
         if (status == VerificationStatus.REJECTED) {
-            notificationProducer.send("vendor-events", NotificationEvent.builder()
-                    .recipientEmail(document.getVendor().getUsername())
-                    .recipientName(document.getVendor().getName())
-                    .type("VENDOR_DOCUMENT_REJECTED")
-                    .subject("Your document has been rejected")
-                    .message("Dear " + document.getVendor().getName() + ", your submitted document "
-                            + "has been REJECTED by " + reviewerUsername
-                            + ". Reason: " + reviewRemarks
-                            + ". Your account has been suspended.")
-                    .referenceId(String.valueOf(document.getVendor().getVendorId()))
-                    .referenceType("VENDOR")
-                    .build());
+            sendVendorNotif("VENDOR_DOCUMENT_REJECTED",
+                    "Your document has been rejected",
+                    "Dear " + document.getVendor().getName() + ", your submitted document has been REJECTED by " + reviewerUsername + ". Reason: " + reviewRemarks + ". Your account has been suspended.",
+                    String.valueOf(document.getVendor().getVendorId()),
+                    document.getVendor().getUsername(), ADMIN_USERNAME);
         }
 
         autoUpdateVendorStatus(document.getVendor());
         return mapDocumentToResponse(document);
+    }
+
+    private static final String ADMIN_USERNAME = "admin";
+
+    private void sendVendorNotif(String type, String subject, String message, String refId,
+                                 String... recipients) {
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (String r : recipients) { if (r != null && !r.isBlank()) seen.add(r); }
+        for (String r : seen) {
+            notificationProducer.send("vendor-events", NotificationEvent.builder()
+                    .recipientEmail(r).recipientName(r)
+                    .type(type).subject(subject).message(message)
+                    .referenceId(refId).referenceType("VENDOR").build());
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -402,16 +379,11 @@ public class VendorServiceImpl implements VendorService {
                 log.info("Vendor {} auto-promoted to ACTIVE", vendor.getVendorId());
                 createVendorUserAccount(vendor);
 
-                notificationProducer.send("vendor-events", NotificationEvent.builder()
-                        .recipientEmail(vendor.getUsername())
-                        .recipientName(vendor.getName())
-                        .type("VENDOR_ACTIVATED")
-                        .subject("Your vendor account is now ACTIVE!")
-                        .message("Congratulations " + vendor.getName() + "! Your vendor account has been "
-                                + "activated. You can now log in and start working on contracts.")
-                        .referenceId(String.valueOf(vendor.getVendorId()))
-                        .referenceType("VENDOR")
-                        .build());
+                sendVendorNotif("VENDOR_ACTIVATED",
+                        "Your vendor account is now ACTIVE!",
+                        "Congratulations " + vendor.getName() + "! Your vendor account has been activated. You can now log in and start working on contracts.",
+                        String.valueOf(vendor.getVendorId()),
+                        vendor.getUsername(), ADMIN_USERNAME);
 
             } else if (doc.getVerificationStatus() == VerificationStatus.REJECTED) {
                 vendor.setStatus(VendorStatus.SUSPENDED);
@@ -419,16 +391,11 @@ public class VendorServiceImpl implements VendorService {
                 vendorRepository.save(vendor);
                 log.info("Vendor {} SUSPENDED due to rejected document", vendor.getVendorId());
 
-                notificationProducer.send("vendor-events", NotificationEvent.builder()
-                        .recipientEmail(vendor.getUsername())
-                        .recipientName(vendor.getName())
-                        .type("VENDOR_SUSPENDED")
-                        .subject("Your vendor account has been suspended")
-                        .message("Dear " + vendor.getName() + ", your vendor account has been suspended due to "
-                                + "rejected document verification. Please contact support for assistance.")
-                        .referenceId(String.valueOf(vendor.getVendorId()))
-                        .referenceType("VENDOR")
-                        .build());
+                sendVendorNotif("VENDOR_SUSPENDED",
+                        "Your vendor account has been suspended",
+                        "Dear " + vendor.getName() + ", your vendor account has been suspended due to rejected document verification. Please contact support for assistance.",
+                        String.valueOf(vendor.getVendorId()),
+                        vendor.getUsername(), ADMIN_USERNAME);
             }
         });
     }
