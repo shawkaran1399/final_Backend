@@ -1,4 +1,4 @@
-package com.buildledger.contract.feign;
+package com.buildledger.delivery.feign;
 
 import feign.RequestInterceptor;
 import feign.RequestTemplate;

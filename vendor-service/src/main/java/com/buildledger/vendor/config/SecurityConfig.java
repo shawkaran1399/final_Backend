@@ -33,7 +33,6 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/vendors/auth/login").permitAll()
                 .requestMatchers(HttpMethod.POST, "/vendors/*/documents").permitAll()
                 .requestMatchers(HttpMethod.PUT, "/vendors/*/documents/replace").permitAll()
-                .requestMatchers(HttpMethod.GET, "/vendors/**").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/actuator/**").permitAll()
                 .anyRequest().authenticated()
             )

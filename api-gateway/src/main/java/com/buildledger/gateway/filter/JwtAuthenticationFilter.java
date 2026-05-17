@@ -22,7 +22,6 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -37,30 +36,6 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     private final JwtUtil jwtUtil;
     private final ObjectMapper objectMapper;
-
-    // Paths that do NOT require authentication
-    private static final List<String> PUBLIC_PATHS = List.of(
-            "/api/auth/login",
-            "/api/vendors/register",
-            "/api/vendors/auth/login",           // pending vendor login
-            "/api/vendors/*/documents",        // vendor doc upload (POST) – public
-            "/api/vendors/*/documents/replace" // vendor doc replace (PUT) – public
-    );
-
-    // Read-only GET paths that are open to all
-    private static final List<String> PUBLIC_GET_PATHS = List.of(
-            "/api/vendors/**",
-            "/api/contracts/**",
-            "/api/projects/**",
-            "/api/deliveries/**",
-            "/api/services/**",
-            "/api/invoices/**",
-            "/api/payments/**",
-            "/api/compliance/**",
-            "/api/audits/**",
-            "/api/users/**",
-            "/api/notifications/**"
-    );
 
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
@@ -124,15 +99,6 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         if (path.matches("/api/vendors/\\d+/documents") &&
                 (HttpMethod.POST.equals(method) || HttpMethod.PUT.equals(method))) {
             return true;
-        }
-
-        // GET requests to common read paths are public
-        if (HttpMethod.GET.equals(method)) {
-            for (String pattern : PUBLIC_GET_PATHS) {
-                if (pathMatcher.match(pattern, path)) {
-                    return true;
-                }
-            }
         }
 
         return false;
